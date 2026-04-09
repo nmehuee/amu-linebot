@@ -1,282 +1,241 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
-    QuickReply, QuickReplyButton, MessageAction
-)
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import os
-import json
 
 app = Flask(__name__)
 
-CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
-CHANNEL_SECRET = os.environ.get('CHANNEL_SECRET')
-OWNER_ID = os.environ.get('OWNER_ID')
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+OWNER_ID = os.environ.get("OWNER_ID")
 
-line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(CHANNEL_SECRET)
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 暫存使用者狀態
+# 儲存用戶狀態
 user_states = {}
 
-PRODUCT_A = "高麗菜韭黃黑豬水餃"
-PRODUCT_B = "韭黃黑豬水餃"
-PRICE = 200
-SHIPPING = 170
-FREE_SHIPPING = 2000
-MIN_ORDER = 2
-MAX_ORDER = 15
-
-def get_quick_reply_numbers(max_num=15):
-    items = []
-    for i in range(0, max_num + 1):
-        items.append(
-            QuickReplyButton(
-                action=MessageAction(label=str(i), text=str(i))
-            )
-        )
-    return QuickReply(items=items)
-
-@app.route("/callback", methods=['POST'])
+@app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    return 'OK'
+    return "OK"
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
     text = event.message.text.strip()
 
-    # 查詢自己的ID
-    if text == "我的ID":
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"你的 User ID 是：\n{user_id}")
-        )
-        return
+    if user_id not in user_states:
+        user_states[user_id] = {"step": "idle"}
 
-    # 開始訂購
-    if text == "開始訂購":
+    state = user_states[user_id]
+    step = state.get("step")
+
+    # ── 開始訂購 ──
+    if text in ["開始訂購", "訂購", "order", "Order"]:
         user_states[user_id] = {"step": "select_a"}
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text=f"🥟 請選擇「{PRODUCT_A}」的數量：\n（最多可選 {MAX_ORDER} 包）",
-                quick_reply=get_quick_reply_numbers(MAX_ORDER)
+                text=(
+                    "🥟 A-MU 水餃訂購開始！\n"
+                    "══════════════════\n"
+                    "【A款】高麗菜韭黃黑豬肉水餃\n"
+                    "【B款】韭黃黑豬肉水餃\n"
+                    "每包 NT$200｜最少2包｜最多15包\n"
+                    "══════════════════\n"
+                    "請輸入【A款】數量（0～15）："
+                )
             )
         )
         return
 
-    # 取得使用者狀態
-    state = user_states.get(user_id, {})
-    step = state.get("step", "")
-
-    # 第一步：選 A 數量
+    # ── 選擇 A 數量 ──
     if step == "select_a":
         if not text.isdigit():
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(
-                    text=f"⚠️ 請用下方按鈕選擇數量！",
-                    quick_reply=get_quick_reply_numbers(MAX_ORDER)
-                )
+                TextSendMessage(text="⚠️ 請輸入數字（0～15）：")
             )
             return
 
         qty_a = int(text)
-        if qty_a > MAX_ORDER:
+
+        if qty_a < 0 or qty_a > 15:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(
-                    text=f"⚠️ 已超過最大訂購量（{MAX_ORDER}包）！\n請重新選擇：",
-                    quick_reply=get_quick_reply_numbers(MAX_ORDER)
-                )
+                TextSendMessage(text="⚠️ 數量需介於 0～15，請重新輸入【A款】數量：")
             )
             return
 
         state["qty_a"] = qty_a
         state["step"] = "select_b"
-        user_states[user_id] = state
 
-        # 計算 B 的最大可選數量
-        max_b = MAX_ORDER - qty_a
-
-        if max_b == 0:
-            # A 已選滿 15 包，B 只能選 0
+        if qty_a == 15:
+            # A已達上限，B自動為0
+            state["qty_b"] = 0
+            state["step"] = "input_name"
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=f"🥟 請選擇「{PRODUCT_B}」的數量：\n（{PRODUCT_A} 已選 {qty_a} 包，已達上限，{PRODUCT_B} 只能選 0）",
-                    quick_reply=QuickReply(items=[
-                        QuickReplyButton(action=MessageAction(label="0", text="0"))
-                    ])
+                    text=(
+                        f"✅ A款：15 包（已達上限，B款自動設為 0）\n\n"
+                        f"請輸入您的姓名："
+                    )
                 )
             )
         else:
+            remaining = 15 - qty_a
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=f"🥟 請選擇「{PRODUCT_B}」的數量：\n（{PRODUCT_A} 已選 {qty_a} 包，{PRODUCT_B} 最多可選 {max_b} 包）",
-                    quick_reply=get_quick_reply_numbers(max_b)
+                    text=(
+                        f"✅ A款：{qty_a} 包\n"
+                        f"請輸入【B款】數量（0～{remaining}）："
+                    )
                 )
             )
         return
 
-    # 第二步：選 B 數量
+    # ── 選擇 B 數量 ──
     if step == "select_b":
+        qty_a = state.get("qty_a", 0)
+        remaining = 15 - qty_a
+
         if not text.isdigit():
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(
-                    text=f"⚠️ 請用下方按鈕選擇數量！",
-                    quick_reply=get_quick_reply_numbers(MAX_ORDER - state.get("qty_a", 0))
-                )
+                TextSendMessage(text=f"⚠️ 請輸入數字（0～{remaining}）：")
             )
             return
 
         qty_b = int(text)
-        qty_a = state.get("qty_a", 0)
-        max_b = MAX_ORDER - qty_a
 
-        if qty_b > max_b:
+        if qty_b < 0 or qty_b > remaining:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=f"⚠️ 已超過最大訂購量！\n{PRODUCT_A} 已選 {qty_a} 包，{PRODUCT_B} 最多只能選 {max_b} 包\n請重新選擇：",
-                    quick_reply=get_quick_reply_numbers(max_b)
+                    text=f"⚠️ B款數量需介於 0～{remaining}，請重新輸入："
                 )
             )
             return
 
-        total_qty = qty_a + qty_b
+        total = qty_a + qty_b
 
-        # 檢查最小訂購量
-        if total_qty < MIN_ORDER:
+        if total < 2:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=f"⚠️ 最少需訂購 {MIN_ORDER} 包！\n目前合計：{total_qty} 包\n請重新選擇「{PRODUCT_A}」的數量：",
-                    quick_reply=get_quick_reply_numbers(MAX_ORDER)
+                    text=(
+                        f"⚠️ 合計僅 {total} 包，最少需訂購 2 包！\n"
+                        f"請重新傳送「開始訂購」"
+                    )
                 )
             )
-            state["step"] = "select_a"
-            user_states[user_id] = state
+            user_states[user_id] = {"step": "idle"}
             return
 
         state["qty_b"] = qty_b
         state["step"] = "input_name"
-        user_states[user_id] = state
-
-        # 計算金額
-        subtotal = total_qty * PRICE
-        shipping = 0 if subtotal >= FREE_SHIPPING else SHIPPING
-        total = subtotal + shipping
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
                 text=(
-                    f"✅ 數量確認：\n"
-                    f"・{PRODUCT_A}：{qty_a} 包\n"
-                    f"・{PRODUCT_B}：{qty_b} 包\n"
-                    f"・合計：{total_qty} 包\n"
-                    f"・小計：NT${subtotal}\n"
-                    f"・運費：NT${shipping}\n"
-                    f"・總金額：NT${total}\n\n"
-                    f"📝 請輸入您的姓名："
+                    f"✅ B款：{qty_b} 包\n"
+                    f"合計：{total} 包\n\n"
+                    f"請輸入您的姓名："
                 )
             )
         )
         return
 
-    # 第三步：輸入姓名
+    # ── 輸入姓名 ──
     if step == "input_name":
         state["name"] = text
         state["step"] = "input_phone"
-        user_states[user_id] = state
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="📞 請輸入您的電話號碼：")
+            TextSendMessage(text="請輸入您的電話號碼：")
         )
         return
 
-    # 第四步：輸入電話
+    # ── 輸入電話 ──
     if step == "input_phone":
         state["phone"] = text
         state["step"] = "input_address"
-        user_states[user_id] = state
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="🏠 請輸入收貨地址：")
+            TextSendMessage(text="請輸入收件地址：")
         )
         return
 
-    # 第五步：輸入地址
+    # ── 輸入地址 ──
     if step == "input_address":
         state["address"] = text
         state["step"] = "input_time"
-        user_states[user_id] = state
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="🕐 請輸入希望到貨時間：\n（例如：2024/12/25 下午）")
+            TextSendMessage(
+                text="請輸入希望到貨時間：\n（例：2026/04/15 上午）"
+            )
         )
         return
 
-    # 第六步：輸入到貨時間
+    # ── 輸入到貨時間 ──
     if step == "input_time":
         state["time"] = text
         state["step"] = "input_remark"
-        user_states[user_id] = state
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="💬 請輸入備註：\n（沒有備註請輸入「無」）")
+            TextSendMessage(text="請輸入備註：\n（無備註請輸入「無」）")
         )
         return
 
-    # 第七步：輸入備註 → 產生訂單
+    # ── 輸入備註 → 完成訂單 ──
     if step == "input_remark":
         state["remark"] = text
-        user_states[user_id] = state
+        state["step"] = "done"
 
         qty_a = state.get("qty_a", 0)
         qty_b = state.get("qty_b", 0)
         total_qty = qty_a + qty_b
-        subtotal = total_qty * PRICE
-        shipping = 0 if subtotal >= FREE_SHIPPING else SHIPPING
-        total = subtotal + shipping
+        subtotal = total_qty * 200
+        shipping = 0 if subtotal >= 2000 else 170
+        total_price = subtotal + shipping
 
         order_summary = (
             f"📦 訂單確認\n"
-            f"{'─' * 20}\n"
-            f"🥟 {PRODUCT_A}：{qty_a} 包\n"
-            f"🥟 {PRODUCT_B}：{qty_b} 包\n"
-            f"{'─' * 20}\n"
-            f"小計：NT${subtotal}\n"
-            f"運費：NT${shipping}\n"
-            f"💰 總金額：NT${total}\n"
-            f"{'─' * 20}\n"
-            f"👤 姓名：{state['name']}\n"
-            f"📞 電話：{state['phone']}\n"
-            f"🏠 地址：{state['address']}\n"
+            f"══════════════════\n"
+            f"🥟 A款 高麗菜韭黃黑豬肉：{qty_a} 包\n"
+            f"🥟 B款 韭黃黑豬肉：{qty_b} 包\n"
+            f"══════════════════\n"
+            f"合計數量：{total_qty} 包\n"
+            f"商品金額：NT${subtotal}\n"
+            f"運　　費：{'免運 🎉' if shipping == 0 else f'NT${shipping}'}\n"
+            f"💰 總金額：NT${total_price}\n"
+            f"══════════════════\n"
+            f"👤 姓　名：{state['name']}\n"
+            f"📞 電　話：{state['phone']}\n"
+            f"📍 地　址：{state['address']}\n"
             f"🕐 到貨時間：{state['time']}\n"
-            f"💬 備註：{state['remark']}\n"
-            f"{'─' * 20}\n"
-            f"💳 付款資訊\n"
-            f"銀行：國泰世華銀行（822）\n"
+            f"📝 備　註：{state['remark']}\n"
+            f"══════════════════\n"
+            f"💳 匯款資訊\n"
+            f"銀行：中國信託(822)\n"
             f"帳號：370540364486\n"
             f"戶名：徐志帆\n"
-            f"{'─' * 20}\n"
-            f"請於 24 小時內完成匯款\n"
-            f"匯款後請傳收據照片給我們 📸"
+            f"══════════════════\n"
+            f"請於 3 天內完成匯款\n"
+            f"匯款後請傳末五碼給我們，謝謝！🙏"
         )
 
-        # 回覆顧客
+        # 回覆用戶
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=order_summary)
@@ -284,42 +243,33 @@ def handle_message(event):
 
         # 通知老闆
         if OWNER_ID:
-            owner_message = (
+            owner_msg = (
                 f"🔔 新訂單通知！\n"
-                f"{'─' * 20}\n"
-                f"🥟 {PRODUCT_A}：{qty_a} 包\n"
-                f"🥟 {PRODUCT_B}：{qty_b} 包\n"
-                f"合計：{total_qty} 包\n"
-                f"{'─' * 20}\n"
-                f"小計：NT${subtotal}\n"
-                f"運費：NT${shipping}\n"
-                f"💰 總金額：NT${total}\n"
-                f"{'─' * 20}\n"
-                f"👤 姓名：{state['name']}\n"
-                f"📞 電話：{state['phone']}\n"
-                f"🏠 地址：{state['address']}\n"
-                f"🕐 到貨時間：{state['time']}\n"
-                f"💬 備註：{state['remark']}\n"
-                f"{'─' * 20}\n"
-                f"顧客 ID：{user_id}"
+                f"══════════════════\n"
+                f"🥟 A款 高麗菜韭黃黑豬肉：{qty_a} 包\n"
+                f"🥟 B款 韭黃黑豬肉：{qty_b} 包\n"
+                f"合計：{total_qty} 包｜NT${total_price}\n"
+                f"══════════════════\n"
+                f"👤 {state['name']}｜📞 {state['phone']}\n"
+                f"📍 {state['address']}\n"
+                f"🕐 {state['time']}\n"
+                f"📝 {state['remark']}"
             )
-            line_bot_api.push_message(
-                OWNER_ID,
-                TextSendMessage(text=owner_message)
-            )
+            line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
 
-        # 清除狀態
-        user_states.pop(user_id, None)
+        user_states[user_id] = {"step": "idle"}
         return
 
-    # 預設回覆
+    # ── 預設回覆 ──
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(
-            text="歡迎光臨 A-MU 水餃！🥟\n請輸入「開始訂購」來下單",
+            text=(
+                "您好！歡迎光臨 A-MU 水餃 🥟\n"
+                "請傳送「開始訂購」來下訂單！"
+            )
         )
     )
 
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run()
