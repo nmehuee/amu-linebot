@@ -45,6 +45,12 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    # 印出來源 ID（用來找 Group ID）
+    print(f"Source type: {event.source.type}")
+    if event.source.type == "group":
+        print(f"✅ Group ID: {event.source.group_id}")
+        return  # 群組訊息不做其他處理
+
     user_id = event.source.user_id
     text = event.message.text.strip()
     state = get_state(user_id)
