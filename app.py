@@ -45,11 +45,10 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # 印出來源 ID（用來找 Group ID）
     print(f"Source type: {event.source.type}")
     if event.source.type == "group":
         print(f"✅ Group ID: {event.source.group_id}")
-        return  # 群組訊息不做其他處理
+        return
 
     user_id = event.source.user_id
     text = event.message.text.strip()
@@ -79,7 +78,9 @@ def handle_message(event):
             return
         qty_a = int(text)
         if qty_a < 0 or qty_a > 15:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 數量需在 0～15 之間，請重新輸入："))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(
+                text="❌ 單筆訂單最多15包，超過15包，煩請再下另一單"
+            ))
             return
         state["order"]["qty_a"] = qty_a
         if qty_a == 15:
@@ -110,7 +111,9 @@ def handle_message(event):
             return
         qty_b = int(text)
         if qty_b < min_b or qty_b > remaining:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 數量需在 {min_b}～{remaining} 之間，請重新輸入："))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(
+                text="❌ 單筆訂單最多15包，超過15包，煩請再下另一單"
+            ))
             return
         state["order"]["qty_b"] = qty_b
         state["step"] = 3
