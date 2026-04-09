@@ -16,7 +16,6 @@ OWNER_ID = os.environ.get("OWNER_ID")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 儲存訂單狀態
 user_states = {}
 
 def get_state(user_id):
@@ -141,7 +140,7 @@ def handle_message(event):
         )
         return
 
-    # Step 6：收到到貨時間選項
+    # Step 6：收到到貨時間 → 顯示確認訂單內容
     if step == 6:
         if text not in ["平日", "禮拜六", "皆可"]:
             quick_reply = QuickReply(items=[
@@ -156,20 +155,14 @@ def handle_message(event):
             return
         state["order"]["delivery_time"] = text
         state["step"] = 7
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入【備註】（無則輸入「無」）："))
-        return
 
-    # Step 7：輸入備註，完成訂單
-    if step == 7:
-        state["order"]["remarks"] = text
         order = state["order"]
         qty_a = order["qty_a"]
         qty_b = order["qty_b"]
         subtotal, shipping, total = calculate_order(qty_a, qty_b)
 
-        # 用戶確認訊息
-        user_msg = (
-            f"✅ 訂單確認！\n"
+        confirm_msg = (
+            f"📋 請確認您的訂單內容：\n"
             f"{'─'*20}\n"
             f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
             f"🥟 韭黃黑豬肉：{qty_b} 包\n"
@@ -182,18 +175,95 @@ def handle_message(event):
             f"電話：{order['phone']}\n"
             f"地址：{order['address']}\n"
             f"到貨時間：{order['delivery_time']}\n"
-            f"備註：{order['remarks']}\n"
             f"{'─'*20}\n\n"
-            f"💳 請匯款至：\n"
-            f"銀行：中國信託(822)\n"
-            f"帳號：370540364486\n"
-            f"戶名：徐志帆\n\n"
-            f"匯款後請傳匯款截圖，我們確認後將盡快安排出貨！🙏"
+            f"請確認資料是否正確？"
         )
 
-        # 店家通知訊息
-        owner_msg = (
-            f"🔔 新訂單通知！\n"
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="✅ 確認送出", text="確認送出")),
+            QuickReplyButton(action=MessageAction(label="❌ 重新填寫", text="重新填寫")),
+        ])
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
+        )
+        return
+
+    # Step 7：確認送出 or 重新填寫
+    if step == 7:
+        if text == "重新填寫":
+            reset_state(user_id)
+            state = get_state(user_id)
+            state["step"] = 1
+            reply = (
+                "🔄 重新開始填寫！\n\n"
+                "請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）："
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            return
+
+        if text == "確認送出":
+            order = state["order"]
+            qty_a = order["qty_a"]
+            qty_b = order["qty_b"]
+            subtotal, shipping, total = calculate_order(qty_a, qty_b)
+
+            # 用戶確認訊息
+            user_msg = (
+                f"✅ 訂單已送出！\n"
+                f"{'─'*20}\n"
+                f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
+                f"🥟 韭黃黑豬肉：{qty_b} 包\n"
+                f"{'─'*20}\n"
+                f"小計：NT${subtotal}\n"
+                f"運費：NT${shipping}\n"
+                f"💰 總計：NT${total}\n"
+                f"{'─'*20}\n"
+                f"姓名：{order['name']}\n"
+                f"電話：{order['phone']}\n"
+                f"地址：{order['address']}\n"
+                f"到貨時間：{order['delivery_time']}\n"
+                f"{'─'*20}\n\n"
+                f"💳 請匯款至：\n"
+                f"銀行：中國信託(822)\n"
+                f"帳號：370540364486\n"
+                f"戶名：徐志帆\n\n"
+                f"匯款後請傳匯款截圖，我們確認後將盡快安排出貨！🙏"
+            )
+
+            # 店家通知訊息
+            owner_msg = (
+                f"🔔 新訂單通知！\n"
+                f"{'─'*20}\n"
+                f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
+                f"🥟 韭黃黑豬肉：{qty_b} 包\n"
+                f"{'─'*20}\n"
+                f"小計：NT${subtotal}\n"
+                f"運費：NT${shipping}\n"
+                f"💰 總計：NT${total}\n"
+                f"{'─'*20}\n"
+                f"姓名：{order['name']}\n"
+                f"電話：{order['phone']}\n"
+                f"地址：{order['address']}\n"
+                f"到貨時間：{order['delivery_time']}\n"
+                f"User ID：{user_id}"
+            )
+
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=user_msg))
+            if OWNER_ID:
+                line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
+
+            reset_state(user_id)
+            return
+
+        # 如果亂打字，重新顯示確認按鈕
+        order = state["order"]
+        qty_a = order["qty_a"]
+        qty_b = order["qty_b"]
+        subtotal, shipping, total = calculate_order(qty_a, qty_b)
+
+        confirm_msg = (
+            f"📋 請確認您的訂單內容：\n"
             f"{'─'*20}\n"
             f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
             f"🥟 韭黃黑豬肉：{qty_b} 包\n"
@@ -206,15 +276,18 @@ def handle_message(event):
             f"電話：{order['phone']}\n"
             f"地址：{order['address']}\n"
             f"到貨時間：{order['delivery_time']}\n"
-            f"備註：{order['remarks']}\n"
-            f"User ID：{user_id}"
+            f"{'─'*20}\n\n"
+            f"請點選下方按鈕："
         )
 
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=user_msg))
-        if OWNER_ID:
-            line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
-
-        reset_state(user_id)
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="✅ 確認送出", text="確認送出")),
+            QuickReplyButton(action=MessageAction(label="❌ 重新填寫", text="重新填寫")),
+        ])
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
+        )
         return
 
     # 預設回覆
