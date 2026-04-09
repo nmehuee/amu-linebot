@@ -1,7 +1,10 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    QuickReply, QuickReplyButton, MessageAction
+)
 import os
 
 app = Flask(__name__)
@@ -123,15 +126,34 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入【收貨地址】："))
         return
 
-    # Step 5：輸入地址
+    # Step 5：輸入地址 → 送出到貨時間選項
     if step == 5:
         state["order"]["address"] = text
         state["step"] = 6
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入【希望到貨時間】："))
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="平日", text="平日")),
+            QuickReplyButton(action=MessageAction(label="禮拜六", text="禮拜六")),
+            QuickReplyButton(action=MessageAction(label="皆可", text="皆可")),
+        ])
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請選擇【希望到貨時間】：", quick_reply=quick_reply)
+        )
         return
 
-    # Step 6：輸入到貨時間
+    # Step 6：收到到貨時間選項
     if step == 6:
+        if text not in ["平日", "禮拜六", "皆可"]:
+            quick_reply = QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="平日", text="平日")),
+                QuickReplyButton(action=MessageAction(label="禮拜六", text="禮拜六")),
+                QuickReplyButton(action=MessageAction(label="皆可", text="皆可")),
+            ])
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 請點選下方按鈕選擇到貨時間：", quick_reply=quick_reply)
+            )
+            return
         state["order"]["delivery_time"] = text
         state["step"] = 7
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入【備註】（無則輸入「無」）："))
