@@ -196,15 +196,15 @@ def start_order(user_id, reply_token):
         text=(
             '歡迎來到 A-MU水餃！🥟\n\n'
             '📦 商品：\n'
-            '• 高麗菜豬肉水餃 NT$200/包\n'
-            '• 韭菜豬肉水餃 NT$200/包\n\n'
+            '• 高麗菜韭黃黑豬肉水餃 NT$200/包\n'
+            '• 韭菜黑豬肉水餃 NT$200/包\n\n'
             '🚚 運費：NT$170（滿NT$2000免運）\n'
             '⚠️ 最少2包，最多15包'
         )
     )
 
     flex = make_quantity_flex(
-        title='高麗菜豬肉水餃',
+        title='高麗菜韭黃黑豬肉水餃',
         subtitle='請選擇數量（包）',
         postback_prefix='cabbage'
     )
@@ -217,8 +217,8 @@ def ask_chives(user_id, reply_token, cabbage_qty):
     remaining = MAX_ORDER - cabbage_qty
 
     flex = make_quantity_flex(
-        title='韭菜豬肉水餃',
-        subtitle=f'請選擇數量（包）\n目前高麗菜：{cabbage_qty}包，最多還可選 {remaining} 包',
+        title='韭菜黑豬肉水餃',
+        subtitle=f'請選擇數量（包）\n目前高麗菜韭黃：{cabbage_qty}包，最多還可選 {remaining} 包',
         postback_prefix='chives',
         max_qty=remaining
     )
@@ -244,8 +244,8 @@ def send_order_summary(user_id, reply_token):
     summary = (
         f'📋 訂單確認\n'
         f'────────────────────\n'
-        f'🥬 高麗菜豬肉水餃：{cabbage} 包\n'
-        f'🌿 韭菜豬肉水餃：{chives} 包\n'
+        f'🥬 高麗菜韭黃黑豬肉水餃：{cabbage} 包\n'
+        f'🌿 韭菜黑豬肉水餃：{chives} 包\n'
         f'────────────────────\n'
         f'小計：NT${subtotal}\n'
         f'運費：NT${shipping}\n'
@@ -259,10 +259,10 @@ def send_order_summary(user_id, reply_token):
         f'────────────────────\n'
         f'💳 匯款資訊：\n'
         f'中國信託銀行(822)\n'
-        f'豐原分行\n'
+        f'頭份分行\n'
         f'帳號：370540364486\n'
         f'戶名：徐志帆\n\n'
-        f'請於24小時內完成匯款，謝謝！🙏'
+        f'請於24小時內完成匯款，並告知匯款帳號後5碼！🙏'
     )
 
     line_bot_api.reply_message(reply_token, TextSendMessage(text=summary))
@@ -271,8 +271,8 @@ def send_order_summary(user_id, reply_token):
         owner_msg = (
             f'🔔 新訂單通知！\n'
             f'────────────────────\n'
-            f'🥬 高麗菜：{cabbage} 包\n'
-            f'🌿 韭菜：{chives} 包\n'
+            f'🥬 高麗菜韭黃黑豬肉：{cabbage} 包\n'
+            f'🌿 韭菜黑豬肉：{chives} 包\n'
             f'💰 總計：NT${total}（運費NT${shipping}）\n'
             f'────────────────────\n'
             f'👤 {name}\n'
@@ -299,13 +299,13 @@ def handle_postback(event):
         )
         return
 
-    # 選擇高麗菜數量
+    # 選擇高麗菜韭黃黑豬肉數量
     if data.startswith('cabbage='):
         qty = int(data.split('=')[1])
         user_orders[user_id]['cabbage'] = qty
         ask_chives(user_id, event.reply_token, qty)
 
-    # 選擇韭菜數量
+    # 選擇韭菜黑豬肉數量
     elif data.startswith('chives='):
         qty = int(data.split('=')[1])
         cabbage = user_orders[user_id].get('cabbage', 0)
@@ -317,7 +317,7 @@ def handle_postback(event):
                 TextSendMessage(
                     text=(
                         f'⚠️ 總數量不足！\n'
-                        f'高麗菜{cabbage}包 + 韭菜{qty}包 = {total}包\n'
+                        f'高麗菜韭黃黑豬肉{cabbage}包 + 韭菜黑豬肉{qty}包 = {total}包\n'
                         f'最少需要 {MIN_ORDER} 包\n\n'
                         f'請重新輸入「Go」再試一次'
                     )
@@ -332,7 +332,7 @@ def handle_postback(event):
             event.reply_token,
             TextSendMessage(
                 text=(
-                    f'✅ 高麗菜{cabbage}包 + 韭菜{qty}包 = 共{total}包\n\n'
+                    f'✅ 高麗菜韭黃黑豬肉{cabbage}包 + 韭菜黑豬肉{qty}包 = 共{total}包\n\n'
                     f'請輸入您的【姓名】'
                 )
             )
