@@ -77,9 +77,7 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
     for row_start in range(0, len(buttons), 4):
         row_buttons = buttons[row_start:row_start + 4]
         while len(row_buttons) < 4:
-            row_buttons.append({
-                "type": "filler"
-            })
+            row_buttons.append({"type": "filler"})
         rows.append({
             "type": "box",
             "layout": "horizontal",
@@ -125,13 +123,9 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
                     "color": "#888888",
                     "wrap": True
                 },
-                {
-                    "type": "separator"
-                },
+                {"type": "separator"},
                 *rows,
-                {
-                    "type": "separator"
-                },
+                {"type": "separator"},
                 cancel_row
             ]
         }
@@ -177,13 +171,9 @@ def make_pickup_flex():
                     "size": "sm",
                     "color": "#888888"
                 },
-                {
-                    "type": "separator"
-                },
+                {"type": "separator"},
                 *buttons,
-                {
-                    "type": "separator"
-                },
+                {"type": "separator"},
                 {
                     "type": "button",
                     "action": {
@@ -199,6 +189,136 @@ def make_pickup_flex():
     }
 
     return FlexSendMessage(alt_text='希望取貨日期', contents=flex_content)
+
+
+def make_summary_flex(order):
+    """建立訂單確認 Flex Message，費用明細與匯款資訊以藍色顯示"""
+    cabbage = order.get('cabbage', 0)
+    chives = order.get('chives', 0)
+    total_packs = cabbage + chives
+    subtotal = total_packs * PRICE_PER_PACK
+    shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
+    total = subtotal + shipping
+
+    name = order.get('name', '')
+    phone = order.get('phone', '')
+    address = order.get('address', '')
+    delivery_time = order.get('delivery_time', '')
+    remarks = order.get('remarks', 'No')
+
+    def row(label, value, value_color="#333333"):
+        return {
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": label,
+                    "size": "sm",
+                    "color": "#888888",
+                    "flex": 3
+                },
+                {
+                    "type": "text",
+                    "text": str(value),
+                    "size": "sm",
+                    "color": value_color,
+                    "flex": 5,
+                    "wrap": True
+                }
+            ]
+        }
+
+    flex_content = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#E05C5C",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📋 訂單確認",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "xl"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+
+                # 商品明細
+                {
+                    "type": "text",
+                    "text": "🛒 商品明細",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#333333"
+                },
+                row("🥬 高麗菜韭黃黑豬肉", f"{cabbage} 包"),
+                row("🌿 韭菜黑豬肉", f"{chives} 包"),
+                {"type": "separator"},
+
+                # 費用明細（藍色）
+                {
+                    "type": "text",
+                    "text": "💰 費用明細",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#333333"
+                },
+                row("小計", f"NT${subtotal}", value_color="#1D6FA4"),
+                row("運費", f"NT${shipping}", value_color="#1D6FA4"),
+                row("總計", f"NT${total}", value_color="#1D6FA4"),
+                {"type": "separator"},
+
+                # 收件資訊
+                {
+                    "type": "text",
+                    "text": "📦 收件資訊",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#333333"
+                },
+                row("👤 姓名", name),
+                row("📞 電話", phone),
+                row("📍 地址", address),
+                row("🕐 取貨日期", delivery_time),
+                row("📝 備註", remarks),
+                {"type": "separator"},
+
+                # 匯款資訊（藍色）
+                {
+                    "type": "text",
+                    "text": "💳 匯款資訊",
+                    "weight": "bold",
+                    "size": "md",
+                    "color": "#1D6FA4"
+                },
+                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4"),
+                row("分行", "頭份分行", value_color="#1D6FA4"),
+                row("帳號", "370540364486", value_color="#1D6FA4"),
+                row("戶名", "徐志帆", value_color="#1D6FA4"),
+                {"type": "separator"},
+
+                # 注意事項（藍色）
+                {
+                    "type": "text",
+                    "text": "請於24小時內完成匯款，並告知匯款帳號後5碼！🙏",
+                    "size": "sm",
+                    "color": "#1D6FA4",
+                    "wrap": True,
+                    "weight": "bold"
+                }
+            ]
+        }
+    }
+
+    return FlexSendMessage(alt_text='📋 訂單確認', contents=flex_content)
 
 
 def start_order(user_id, reply_token):
@@ -241,46 +361,19 @@ def ask_chives(user_id, reply_token, cabbage_qty):
 
 def send_order_summary(user_id, reply_token):
     order = user_orders[user_id]
-    cabbage = order.get('cabbage', 0)
-    chives = order.get('chives', 0)
-    total_packs = cabbage + chives
-    subtotal = total_packs * PRICE_PER_PACK
-    shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
-    total = subtotal + shipping
 
-    name = order.get('name', '')
-    phone = order.get('phone', '')
-    address = order.get('address', '')
-    delivery_time = order.get('delivery_time', '')
-    remarks = order.get('remarks', 'No')
+    # 發送 Flex Message 訂單確認給用戶
+    line_bot_api.reply_message(reply_token, make_summary_flex(order))
 
-    summary = (
-        f'📋 訂單確認\n'
-        f'────────────────────\n'
-        f'🥬 高麗菜韭黃黑豬肉水餃：{cabbage} 包\n'
-        f'🌿 韭菜黑豬肉水餃：{chives} 包\n'
-        f'────────────────────\n'
-        f'小計：NT${subtotal}\n'
-        f'運費：NT${shipping}\n'
-        f'💰 總計：NT${total}\n'
-        f'────────────────────\n'
-        f'👤 姓名：{name}\n'
-        f'📞 電話：{phone}\n'
-        f'📍 地址：{address}\n'
-        f'🕐 取貨日期：{delivery_time}\n'
-        f'📝 備註：{remarks}\n'
-        f'────────────────────\n'
-        f'💳 匯款資訊：\n'
-        f'中國信託銀行(822)\n'
-        f'頭份分行\n'
-        f'帳號：370540364486\n'
-        f'戶名：徐志帆\n\n'
-        f'請於24小時內完成匯款，並告知匯款帳號後5碼！🙏'
-    )
-
-    line_bot_api.reply_message(reply_token, TextSendMessage(text=summary))
-
+    # 推送純文字通知給店主
     if OWNER_ID:
+        cabbage = order.get('cabbage', 0)
+        chives = order.get('chives', 0)
+        total_packs = cabbage + chives
+        subtotal = total_packs * PRICE_PER_PACK
+        shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
+        total = subtotal + shipping
+
         owner_msg = (
             f'🔔 新訂單通知！\n'
             f'────────────────────\n'
@@ -288,11 +381,11 @@ def send_order_summary(user_id, reply_token):
             f'🌿 韭菜黑豬肉：{chives} 包\n'
             f'💰 總計：NT${total}（運費NT${shipping}）\n'
             f'────────────────────\n'
-            f'👤 {name}\n'
-            f'📞 {phone}\n'
-            f'📍 {address}\n'
-            f'🕐 {delivery_time}\n'
-            f'📝 {remarks}'
+            f'👤 {order.get("name", "")}\n'
+            f'📞 {order.get("phone", "")}\n'
+            f'📍 {order.get("address", "")}\n'
+            f'🕐 {order.get("delivery_time", "")}\n'
+            f'📝 {order.get("remarks", "No")}'
         )
         line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
 
