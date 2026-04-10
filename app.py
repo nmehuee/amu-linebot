@@ -455,7 +455,6 @@ def export_orders_to_excel():
         return None, f"❌ 匯出失敗：{str(e)}"
 
 
-# ✅ 修改：加入 last_5_digits 參數
 def save_order(user_id, state, last_5_digits=""):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
@@ -474,7 +473,7 @@ def save_order(user_id, state, last_5_digits=""):
         "total": total,
         "exported": False,
         "status": "pending",
-        "last_5_digits": last_5_digits  # ✅ 新增
+        "last_5_digits": last_5_digits
     }).execute()
 
     supabase.table("user_profiles").upsert({
@@ -544,7 +543,6 @@ def notify_owner(state, line_display_name="", order_id=None):
                     ]
                 ),
                 SeparatorComponent(margin="md"),
-                # ✅ 新增：顯示後5碼
                 TextComponent(
                     text=f"💰 匯款後5碼：{state.get('last_5_digits', '待確認')}",
                     size="sm", color="#FF6B6B", margin="md", weight="bold"
@@ -606,6 +604,14 @@ def handle_message(event):
             )
             return
 
+    # 🔧 暫時用：查詢自己的 User ID（部署後傳「我的ID」給 bot 即可查詢）
+    if user_message == "我的ID":
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"你的 User ID 是：\n{user_id}")
+        )
+        return
+
     if user_message == "匯出" and (user_id == OWNER_ID or source_id == OWNER_ID):
         url, msg = export_orders_to_excel()
         reply_text = f"{msg}\n\n📥 下載連結：\n{url}" if url else msg
@@ -658,7 +664,6 @@ def handle_message(event):
         send_delivery_time_flex(event.reply_token)
         return
 
-    # ✅ 新增：step 9 等待後5碼
     if step == 9:
         if not re.match(r'^\d{5}$', user_message):
             line_bot_api.reply_message(
@@ -670,13 +675,11 @@ def handle_message(event):
         order_id = state.get("order_id")
         line_display_name = state.get("line_display_name", "（無法取得）")
 
-        # 更新資料庫
         supabase.table("orders") \
             .update({"last_5_digits": user_message}) \
             .eq("id", order_id) \
             .execute()
 
-        # 通知老闆
         state["last_5_digits"] = user_message
         notify_owner(state, line_display_name, order_id)
 
@@ -764,7 +767,6 @@ def handle_postback(event):
         total_packs = qty_a + qty_b
 
         if total_packs < MIN_PACKS:
-            # ✅ 修正：只能 reply 一次，改用 push + reply
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text=f"❗ 最少需訂購 {MIN_PACKS} 包，目前共 {total_packs} 包，請重新選擇。")
@@ -836,7 +838,6 @@ def handle_postback(event):
         send_order_summary_flex(event.reply_token, state)
         return
 
-    # ✅ 修改：confirm_order 不再直接通知老闆，改進入 step 9
     if action == "confirm_order" and step == 8:
         try:
             try:
@@ -845,10 +846,8 @@ def handle_postback(event):
             except Exception:
                 line_display_name = "（無法取得）"
 
-            # 先建立訂單（last_5_digits 暫為空）
             order_id = save_order(user_id, state, last_5_digits="")
 
-            # 進入 step 9，等待後5碼
             state["step"] = 9
             state["order_id"] = order_id
             state["line_display_name"] = line_display_name
@@ -880,7 +879,6 @@ def handle_postback(event):
         return
 
 
-# ✅ 輔助函式：建立 qty_b 的 BubbleContainer（供 push 使用）
 def _build_qty_b_bubble(qty_a):
     remaining = MAX_PACKS - qty_a
     buttons = []
