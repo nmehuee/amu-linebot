@@ -385,7 +385,6 @@ def export_orders_to_excel():
         ws = wb.active
         ws.title = "訂單列表"
 
-        # ✅ 修改欄位名稱
         headers = ["溫層", "收件人姓名", "收件人電話", "收件人手機", "收件人地址", "寄件日期", "包裹內容", "品名類別", "希望送達時段"]
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -421,15 +420,15 @@ def export_orders_to_excel():
             delivery_display = delivery_map.get(order.get("delivery_time", ""), order.get("delivery_time", ""))
 
             row_data = [
-                "冷凍",                  # A 溫層
-                order.get("name", ""),   # B 收件人姓名
-                "",                      # C 收件人電話（空白）
-                order.get("phone", ""),  # D 收件人手機
-                order.get("address", ""),# E 收件人地址
-                "",                      # F 寄件日期（空白）
-                content_str,             # G 包裹內容
-                "一般食品",              # H 品名類別 ✅
-                delivery_display,        # I 希望送達時段
+                "冷凍",
+                order.get("name", ""),
+                "",
+                order.get("phone", ""),
+                order.get("address", ""),
+                "",
+                content_str,
+                "一般食品",
+                delivery_display,
             ]
 
             for col_idx, value in enumerate(row_data, start=1):
@@ -507,7 +506,11 @@ def save_order(user_id, state):
     }).execute()
 
 
-def notify_owner(state):
+# =====================
+# 通知店主（含 LINE 顯示名稱）
+# =====================
+
+def notify_owner(state, line_display_name=""):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
     subtotal, shipping, total = calc_order(qty_a, qty_b)
@@ -522,6 +525,7 @@ def notify_owner(state):
     msg = (
         f"🔔 新訂單通知！\n"
         f"{'='*20}\n"
+        f"💬 LINE 名稱：{line_display_name}\n"
         f"👤 姓名：{state.get('name')}\n"
         f"📞 電話：{state.get('phone')}\n"
         f"📍 地址：{state.get('address')}\n"
@@ -581,7 +585,7 @@ def handle_message(event):
             )
             return
 
-    # ✅ 匯出指令：個人 ID 或 群組 ID 符合 OWNER_ID 都可觸發
+    # 匯出指令：個人 ID 或 群組/Room ID 符合 OWNER_ID 都可觸發
     if user_message == "匯出" and (user_id == OWNER_ID or source_id == OWNER_ID):
         url, msg = export_orders_to_excel()
         if url:
@@ -752,8 +756,15 @@ def handle_postback(event):
 
     if action == "confirm_order" and step == 8:
         try:
+            # 取得 LINE 顯示名稱
+            try:
+                profile = line_bot_api.get_profile(user_id)
+                line_display_name = profile.display_name
+            except Exception:
+                line_display_name = "（無法取得）"
+
             save_order(user_id, state)
-            notify_owner(state)
+            notify_owner(state, line_display_name)
             reset_state(user_id)
             line_bot_api.reply_message(
                 event.reply_token,
