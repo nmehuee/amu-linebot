@@ -3,8 +3,8 @@ from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, PostbackEvent,
-    QuickReply, QuickReplyButton, PostbackAction
+    MessageEvent, TextMessage, TextSendMessage,
+    PostbackEvent, FlexSendMessage
 )
 
 app = Flask(__name__)
@@ -27,9 +27,11 @@ MAX_ORDER = 15
 
 ORDER_KEYWORDS = {'go', 'GO', 'Go'}
 
+
 @app.route('/')
 def index():
     return 'A-MU LINE Bot is running!', 200
+
 
 @app.route('/callback', methods=['POST'])
 def callback():
@@ -41,111 +43,146 @@ def callback():
         abort(400)
     return 'OK', 200
 
-def ask_cabbage(reply_token):
-    items = []
-    for i in range(0, 13):
-        items.append(
-            QuickReplyButton(
-                action=PostbackAction(
-                    label=str(i),
-                    data=f'cabbage={i}'
-                )
-            )
-        )
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(
-            text='🥬 請選擇【高麗菜豬肉水餃】數量（包）\n（0-12包，下一步可選13-15包）',
-            quick_reply=QuickReply(items=items)
-        )
-    )
 
-def ask_cabbage_more(reply_token):
-    items = []
-    for i in range(13, 16):
-        items.append(
-            QuickReplyButton(
-                action=PostbackAction(
-                    label=str(i),
-                    data=f'cabbage={i}'
-                )
-            )
-        )
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(
-            text='🥬 請選擇【高麗菜豬肉水餃】數量（包）\n（13-15包）',
-            quick_reply=QuickReply(items=items)
-        )
-    )
+def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
+    """建立數量選擇的 Flex Message，格狀排列"""
 
-def ask_chives(reply_token):
-    items = []
-    for i in range(0, 13):
-        items.append(
-            QuickReplyButton(
-                action=PostbackAction(
-                    label=str(i),
-                    data=f'chives={i}'
-                )
-            )
-        )
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(
-            text='🌿 請選擇【韭菜豬肉水餃】數量（包）\n（0-12包，下一步可選13-15包）',
-            quick_reply=QuickReply(items=items)
-        )
-    )
+    # 建立數字按鈕 0~max_qty
+    buttons = []
+    for i in range(0, max_qty + 1):
+        buttons.append({
+            "type": "button",
+            "action": {
+                "type": "postback",
+                "label": str(i),
+                "data": f"{postback_prefix}={i}"
+            },
+            "style": "primary",
+            "color": "#E05C5C",
+            "height": "sm",
+            "flex": 1
+        })
 
-def ask_chives_more(reply_token):
-    items = []
-    for i in range(13, 16):
-        items.append(
-            QuickReplyButton(
-                action=PostbackAction(
-                    label=str(i),
-                    data=f'chives={i}'
-                )
-            )
-        )
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(
-            text='🌿 請選擇【韭菜豬肉水餃】數量（包）\n（13-15包）',
-            quick_reply=QuickReply(items=items)
-        )
-    )
+    # 每排4個，組成多排
+    rows = []
+    for row_start in range(0, len(buttons), 4):
+        row_buttons = buttons[row_start:row_start + 4]
+        # 補齊空白（最後一排不足4個時）
+        while len(row_buttons) < 4:
+            row_buttons.append({
+                "type": "filler"
+            })
+        rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": row_buttons
+        })
+
+    # 取消按鈕
+    cancel_row = {
+        "type": "box",
+        "layout": "horizontal",
+        "spacing": "sm",
+        "contents": [
+            {
+                "type": "button",
+                "action": {
+                    "type": "postback",
+                    "label": "✖ 取消訂單",
+                    "data": "cancel"
+                },
+                "style": "secondary",
+                "height": "sm"
+            }
+        ]
+    }
+
+    flex_content = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "image",
+                    "url": "https://i.imgur.com/your_logo.png",  # 可換成你的 logo
+                    "size": "xxs",
+                    "align": "start"
+                }
+            ],
+            "paddingBottom": "none"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": title,
+                    "weight": "bold",
+                    "size": "xl"
+                },
+                {
+                    "type": "text",
+                    "text": subtitle,
+                    "size": "sm",
+                    "color": "#888888"
+                },
+                {
+                    "type": "separator"
+                },
+                *rows,
+                {
+                    "type": "separator"
+                },
+                cancel_row
+            ]
+        }
+    }
+
+    return FlexSendMessage(alt_text=title, contents=flex_content)
+
 
 def start_order(user_id, reply_token):
     user_states[user_id] = 'selecting_cabbage'
     user_orders[user_id] = {}
-    items = []
-    for i in range(0, 13):
-        items.append(
-            QuickReplyButton(
-                action=PostbackAction(
-                    label=str(i),
-                    data=f'cabbage={i}'
-                )
-            )
-        )
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(
-            text=(
-                '歡迎來到 A-MU水餃！🥟\n\n'
-                '📦 商品：\n'
-                '• 高麗菜豬肉水餃 NT$200/包\n'
-                '• 韭菜豬肉水餃 NT$200/包\n\n'
-                '🚚 運費：NT$170（滿NT$2000免運）\n'
-                '⚠️ 最少訂購2包，最多15包\n\n'
-                '🥬 請選擇【高麗菜豬肉水餃】數量（0-12包）\n'
-                '若需要13-15包請在選完後繼續選擇'
-            ),
-            quick_reply=QuickReply(items=items)
+
+    # 先送歡迎訊息，再送選單
+    welcome = TextSendMessage(
+        text=(
+            '歡迎來到 A-MU水餃！🥟\n\n'
+            '📦 商品：\n'
+            '• 高麗菜豬肉水餃 NT$200/包\n'
+            '• 韭菜豬肉水餃 NT$200/包\n\n'
+            '🚚 運費：NT$170（滿NT$2000免運）\n'
+            '⚠️ 最少2包，最多15包'
         )
     )
+
+    flex = make_quantity_flex(
+        title='高麗菜豬肉水餃',
+        subtitle='請選擇數量（包）',
+        postback_prefix='cabbage'
+    )
+
+    line_bot_api.reply_message(reply_token, [welcome, flex])
+
+
+def ask_chives(user_id, reply_token, cabbage_qty):
+    user_states[user_id] = 'selecting_chives'
+    remaining = MAX_ORDER - cabbage_qty
+
+    flex = make_quantity_flex(
+        title='韭菜豬肉水餃',
+        subtitle=f'請選擇數量（包）\n目前高麗菜：{cabbage_qty}包，最多還可選 {remaining} 包',
+        postback_prefix='chives',
+        max_qty=remaining
+    )
+
+    line_bot_api.reply_message(reply_token, flex)
+
 
 def send_order_summary(user_id, reply_token):
     order = user_orders[user_id]
@@ -164,20 +201,20 @@ def send_order_summary(user_id, reply_token):
 
     summary = (
         f'📋 訂單確認\n'
-        f'{'─'*20}\n'
+        f'────────────────────\n'
         f'🥬 高麗菜豬肉水餃：{cabbage} 包\n'
         f'🌿 韭菜豬肉水餃：{chives} 包\n'
-        f'{'─'*20}\n'
+        f'────────────────────\n'
         f'小計：NT${subtotal}\n'
         f'運費：NT${shipping}\n'
         f'💰 總計：NT${total}\n'
-        f'{'─'*20}\n'
+        f'────────────────────\n'
         f'👤 姓名：{name}\n'
         f'📞 電話：{phone}\n'
         f'📍 地址：{address}\n'
         f'🕐 到貨時間：{delivery_time}\n'
         f'📝 備註：{remarks}\n'
-        f'{'─'*20}\n'
+        f'────────────────────\n'
         f'💳 匯款資訊：\n'
         f'中國信託銀行(822)\n'
         f'豐原分行\n'
@@ -186,19 +223,16 @@ def send_order_summary(user_id, reply_token):
         f'請於24小時內完成匯款，謝謝！🙏'
     )
 
-    line_bot_api.reply_message(
-        reply_token,
-        TextSendMessage(text=summary)
-    )
+    line_bot_api.reply_message(reply_token, TextSendMessage(text=summary))
 
     if OWNER_ID:
         owner_msg = (
             f'🔔 新訂單通知！\n'
-            f'{'─'*20}\n'
+            f'────────────────────\n'
             f'🥬 高麗菜：{cabbage} 包\n'
             f'🌿 韭菜：{chives} 包\n'
-            f'💰 總計：NT${total}（含運NT${shipping}）\n'
-            f'{'─'*20}\n'
+            f'💰 總計：NT${total}（運費NT${shipping}）\n'
+            f'────────────────────\n'
             f'👤 {name}\n'
             f'📞 {phone}\n'
             f'📍 {address}\n'
@@ -207,77 +241,47 @@ def send_order_summary(user_id, reply_token):
         )
         line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
 
+
 @handler.add(PostbackEvent)
 def handle_postback(event):
     user_id = event.source.user_id
     data = event.postback.data
 
+    # 取消訂單
+    if data == 'cancel':
+        user_states[user_id] = None
+        user_orders[user_id] = {}
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text='已取消訂單 ❌\n如需重新訂購，請輸入「Go」')
+        )
+        return
+
+    # 選擇高麗菜數量
     if data.startswith('cabbage='):
         qty = int(data.split('=')[1])
         user_orders[user_id]['cabbage'] = qty
-        user_states[user_id] = 'selecting_chives'
+        ask_chives(user_id, event.reply_token, qty)
 
-        items = []
-        for i in range(0, 13):
-            items.append(
-                QuickReplyButton(
-                    action=PostbackAction(
-                        label=str(i),
-                        data=f'chives={i}'
-                    )
-                )
-            )
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text=f'已選擇高麗菜：{qty} 包\n\n🌿 請選擇【韭菜豬肉水餃】數量（0-12包）',
-                quick_reply=QuickReply(items=items)
-            )
-        )
-
+    # 選擇韭菜數量
     elif data.startswith('chives='):
         qty = int(data.split('=')[1])
         cabbage = user_orders[user_id].get('cabbage', 0)
         total = cabbage + qty
 
         if total < MIN_ORDER:
-            items = []
-            for i in range(0, 13):
-                items.append(
-                    QuickReplyButton(
-                        action=PostbackAction(
-                            label=str(i),
-                            data=f'chives={i}'
-                        )
-                    )
-                )
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=f'⚠️ 總數量不足！\n目前：高麗菜{cabbage}包 + 韭菜{qty}包 = {total}包\n最少需要 {MIN_ORDER} 包，請重新選擇韭菜數量',
-                    quick_reply=QuickReply(items=items)
-                )
-            )
-            return
-
-        if total > MAX_ORDER:
-            items = []
-            for i in range(0, 13):
-                items.append(
-                    QuickReplyButton(
-                        action=PostbackAction(
-                            label=str(i),
-                            data=f'chives={i}'
-                        )
+                    text=(
+                        f'⚠️ 總數量不足！\n'
+                        f'高麗菜{cabbage}包 + 韭菜{qty}包 = {total}包\n'
+                        f'最少需要 {MIN_ORDER} 包\n\n'
+                        f'請重新輸入「Go」再試一次'
                     )
                 )
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text=f'⚠️ 總數量超過上限！\n目前：高麗菜{cabbage}包 + 韭菜{qty}包 = {total}包\n最多 {MAX_ORDER} 包，請重新選擇韭菜數量',
-                    quick_reply=QuickReply(items=items)
-                )
             )
+            user_states[user_id] = None
             return
 
         user_orders[user_id]['chives'] = qty
@@ -285,9 +289,13 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text=f'✅ 已選擇：高麗菜{cabbage}包 + 韭菜{qty}包 = 共{total}包\n\n請輸入您的【姓名】'
+                text=(
+                    f'✅ 高麗菜{cabbage}包 + 韭菜{qty}包 = 共{total}包\n\n'
+                    f'請輸入您的【姓名】'
+                )
             )
         )
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -295,6 +303,7 @@ def handle_message(event):
     text = event.message.text.strip()
     state = user_states.get(user_id)
 
+    # 查詢自己 ID
     if text == '我的ID':
         line_bot_api.reply_message(
             event.reply_token,
@@ -302,10 +311,12 @@ def handle_message(event):
         )
         return
 
-    if text in ORDER_KEYWORDS:
+    # 開始訂購
+    if text.lower() == 'go':
         start_order(user_id, event.reply_token)
         return
 
+    # 輸入姓名
     if state == 'input_name':
         user_orders[user_id]['name'] = text
         user_states[user_id] = 'input_phone'
@@ -314,6 +325,7 @@ def handle_message(event):
             TextSendMessage(text='請輸入您的【電話號碼】')
         )
 
+    # 輸入電話
     elif state == 'input_phone':
         user_orders[user_id]['phone'] = text
         user_states[user_id] = 'input_address'
@@ -322,6 +334,7 @@ def handle_message(event):
             TextSendMessage(text='請輸入您的【收貨地址】')
         )
 
+    # 輸入地址
     elif state == 'input_address':
         user_orders[user_id]['address'] = text
         user_states[user_id] = 'input_delivery_time'
@@ -330,6 +343,7 @@ def handle_message(event):
             TextSendMessage(text='請輸入【希望到貨時間】\n（例如：2026/04/15 下午）')
         )
 
+    # 輸入到貨時間
     elif state == 'input_delivery_time':
         user_orders[user_id]['delivery_time'] = text
         user_states[user_id] = 'input_remarks'
@@ -338,6 +352,7 @@ def handle_message(event):
             TextSendMessage(text='請輸入【備註】\n（無備註請輸入「無」）')
         )
 
+    # 輸入備註
     elif state == 'input_remarks':
         user_orders[user_id]['remarks'] = text
         user_states[user_id] = None
@@ -348,6 +363,7 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage(text='請輸入「Go」開始訂購水餃 🥟')
         )
+
 
 if __name__ == '__main__':
     app.run(debug=True)
