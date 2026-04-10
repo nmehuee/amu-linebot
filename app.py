@@ -385,7 +385,8 @@ def export_orders_to_excel():
         ws = wb.active
         ws.title = "訂單列表"
 
-        headers = ["溫層", "姓名", "電話(空白)", "手機", "地址", "出貨日期", "內容物", "類別", "到貨時間"]
+        # ✅ 修改欄位名稱
+        headers = ["溫層", "收件人姓名", "收件人電話", "收件人手機", "收件人地址", "寄件日期", "包裹內容", "品名類別", "希望送達時段"]
         header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=11)
         thin_border = Border(
@@ -420,15 +421,15 @@ def export_orders_to_excel():
             delivery_display = delivery_map.get(order.get("delivery_time", ""), order.get("delivery_time", ""))
 
             row_data = [
-                "冷凍",
-                order.get("name", ""),
-                "",
-                order.get("phone", ""),
-                order.get("address", ""),
-                "",
-                content_str,
-                "冷凍食品",
-                delivery_display,
+                "冷凍",                  # A 溫層
+                order.get("name", ""),   # B 收件人姓名
+                "",                      # C 收件人電話（空白）
+                order.get("phone", ""),  # D 收件人手機
+                order.get("address", ""),# E 收件人地址
+                "",                      # F 寄件日期（空白）
+                content_str,             # G 包裹內容
+                "一般食品",              # H 品名類別 ✅
+                delivery_display,        # I 希望送達時段
             ]
 
             for col_idx, value in enumerate(row_data, start=1):
