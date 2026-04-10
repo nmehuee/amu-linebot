@@ -17,6 +17,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 user_states = {}
+user_profiles = {}  # 記住客戶資料 {user_id: {name, phone, address}}
 
 def get_state(user_id):
     if user_id not in user_states:
@@ -32,6 +33,19 @@ def calculate_order(qty_a, qty_b):
     shipping = 0 if subtotal >= 2000 else 170
     total = subtotal + shipping
     return subtotal, shipping, total
+
+def cancel_order(user_id, reply_token):
+    reset_state(user_id)
+    quick_reply = QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="🛒 開始訂購", text="開始訂購")),
+    ])
+    line_bot_api.reply_message(
+        reply_token,
+        TextSendMessage(
+            text="已取消訂單，歡迎下次再來！😊\n\n點下方按鈕可重新開始訂購：",
+            quick_reply=quick_reply
+        )
+    )
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -55,30 +69,71 @@ def handle_message(event):
     state = get_state(user_id)
     step = state["step"]
 
-    # 開始訂購
-    if text in ["訂購", "開始訂購", "我要訂購"]:
+    # ─── 取消關鍵字（任何步驟都有效）───
+    if text in ["取消", "離開", "掰掰"] and step > 0:
+        cancel_order(user_id, event.reply_token)
+        return
+
+    # ─── 歡迎訊息 / 開始訂購 ───
+    if step == 0 or text in ["訂購", "開始訂購", "我要訂購", "你好", "hi", "Hi", "Hello", "hello"]:
         reset_state(user_id)
         state = get_state(user_id)
         state["step"] = 1
-        reply = (
-            "🥟 歡迎訂購 A-MU 水餃！\n\n"
-            "【商品】\n"
-            "A. 高麗菜韭黃黑豬肉 NT$200/包\n"
-            "B. 韭黃黑豬肉 NT$200/包\n\n"
-            "📦 最少2包，最多15包\n\n"
-            "請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）："
-        )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="🛒 開始訂購", text="開始訂購")),
+        ])
+
+        # 如果已經在 step 1 了（剛按開始訂購），直接進入點餐
+        if text in ["開始訂購", "訂購", "我要訂購"]:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text=(
+                        "🥟 歡迎訂購 A-MU 水餃！\n\n"
+                        "【商品】\n"
+                        "A. 高麗菜韭黃黑豬肉 NT$200/包\n"
+                        "B. 韭黃黑豬肉 NT$200/包\n\n"
+                        "📦 最少2包，最多15包\n\n"
+                        "請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）：\n"
+                        "（輸入「取消」可隨時離開）"
+                    )
+                )
+            )
+        else:
+            # 第一次進來或隨意打字 → 顯示歡迎 + 按鈕
+            state["step"] = 0
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text=(
+                        "👋 歡迎來到 A-MU 水餃！\n\n"
+                        "【商品】\n"
+                        "🥟 A. 高麗菜韭黃黑豬肉 NT$200/包\n"
+                        "🥟 B. 韭黃黑豬肉 NT$200/包\n\n"
+                        "📦 最少2包，最多15包\n"
+                        "🚚 滿NT$2000免運，未滿運費NT$170\n\n"
+                        "點下方按鈕開始訂購！"
+                    ),
+                    quick_reply=quick_reply
+                )
+            )
         return
 
-    # Step 1：輸入 A 數量
+    # ─── Step 1：輸入 A 數量 ───
     if step == 1:
         if not text.isdigit():
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 請輸入數字（0～15）："))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 請輸入數字（0～15）：\n（輸入「取消」可隨時離開）")
+            )
             return
         qty_a = int(text)
         if qty_a < 0 or qty_a > 15:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 數量需在 0～15 之間，請重新輸入："))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 數量需在 0～15 之間，請重新輸入：")
+            )
             return
         state["order"]["qty_a"] = qty_a
         if qty_a == 15:
@@ -86,125 +141,123 @@ def handle_message(event):
             state["step"] = 3
             reply = (
                 "A 已選 15 包，B 自動設為 0 包。\n\n"
-                "請輸入您的【姓名】："
+                "請輸入【B 韭黃黑豬肉】數量（0～15）：\n"
+                "（輸入「取消」可隨時離開）"
             )
+            # 跳到姓名/沿用判斷
+            _go_to_name_step(user_id, event.reply_token, state)
         else:
             remaining = 15 - qty_a
             min_b = max(0, 2 - qty_a)
             state["step"] = 2
             reply = (
                 f"A 已選 {qty_a} 包\n"
-                f"請輸入【B 韭黃黑豬肉】數量（{min_b}～{remaining}）："
+                f"請輸入【B 韭黃黑豬肉】數量（{min_b}～{remaining}）：\n"
+                f"（輸入「取消」可隨時離開）"
             )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
 
-    # Step 2：輸入 B 數量
+    # ─── Step 2：輸入 B 數量 ───
     if step == 2:
         qty_a = state["order"]["qty_a"]
         remaining = 15 - qty_a
         min_b = max(0, 2 - qty_a)
         if not text.isdigit():
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 請輸入數字（{min_b}～{remaining}）："))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"❌ 請輸入數字（{min_b}～{remaining}）：\n（輸入「取消」可隨時離開）")
+            )
             return
         qty_b = int(text)
         if qty_b < min_b or qty_b > remaining:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 數量需在 {min_b}～{remaining} 之間，請重新輸入："))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"❌ 數量需在 {min_b}～{remaining} 之間，請重新輸入：")
+            )
             return
         state["order"]["qty_b"] = qty_b
         state["step"] = 3
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入您的【姓名】："))
+        _go_to_name_step(user_id, event.reply_token, state)
         return
 
-    # Step 3：輸入姓名
+    # ─── Step 3：詢問是否沿用 or 輸入姓名 ───
     if step == 3:
+        # 如果是沿用資料的回應
+        if text == "沿用上次資料":
+            profile = user_profiles.get(user_id)
+            if profile:
+                state["order"]["name"] = profile["name"]
+                state["order"]["phone"] = profile["phone"]
+                state["order"]["address"] = profile["address"]
+                state["step"] = 6
+                _ask_delivery_time(event.reply_token)
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="找不到上次資料，請輸入您的【姓名】：\n（輸入「取消」可隨時離開）")
+                )
+            return
+
+        if text == "重新填寫資料":
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="請輸入您的【姓名】：\n（輸入「取消」可隨時離開）")
+            )
+            return
+
+        # 直接輸入姓名
         state["order"]["name"] = text
         state["step"] = 4
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入您的【手機號碼】："))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請輸入您的【手機號碼】：\n（輸入「取消」可隨時離開）")
+        )
         return
 
-    # Step 4：輸入電話
+    # ─── Step 4：輸入電話 ───
     if step == 4:
         state["order"]["phone"] = text
         state["step"] = 5
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入【收貨地址】："))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請輸入【收貨地址】：\n（輸入「取消」可隨時離開）")
+        )
         return
 
-    # Step 5：輸入地址 → 送出到貨時間選項
+    # ─── Step 5：輸入地址 → 選到貨時間 ───
     if step == 5:
         state["order"]["address"] = text
         state["step"] = 6
-        quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="平日", text="平日")),
-            QuickReplyButton(action=MessageAction(label="禮拜六", text="禮拜六")),
-            QuickReplyButton(action=MessageAction(label="皆可", text="皆可")),
-        ])
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="請選擇【希望到貨時間】：", quick_reply=quick_reply)
-        )
+        _ask_delivery_time(event.reply_token)
         return
 
-    # Step 6：收到到貨時間 → 顯示確認訂單內容
+    # ─── Step 6：選擇到貨時間 ───
     if step == 6:
         if text not in ["平日", "禮拜六", "皆可"]:
-            quick_reply = QuickReply(items=[
-                QuickReplyButton(action=MessageAction(label="平日", text="平日")),
-                QuickReplyButton(action=MessageAction(label="禮拜六", text="禮拜六")),
-                QuickReplyButton(action=MessageAction(label="皆可", text="皆可")),
-            ])
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="❌ 請點選下方按鈕選擇到貨時間：", quick_reply=quick_reply)
-            )
+            _ask_delivery_time(event.reply_token, error=True)
             return
         state["order"]["delivery_time"] = text
         state["step"] = 7
-
-        order = state["order"]
-        qty_a = order["qty_a"]
-        qty_b = order["qty_b"]
-        subtotal, shipping, total = calculate_order(qty_a, qty_b)
-
-        confirm_msg = (
-            f"📋 請確認您的訂單內容：\n"
-            f"{'─'*20}\n"
-            f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
-            f"🥟 韭黃黑豬肉：{qty_b} 包\n"
-            f"{'─'*20}\n"
-            f"小計：NT${subtotal}\n"
-            f"運費：NT${shipping}\n"
-            f"💰 總計：NT${total}\n"
-            f"{'─'*20}\n"
-            f"姓名：{order['name']}\n"
-            f"電話：{order['phone']}\n"
-            f"地址：{order['address']}\n"
-            f"到貨時間：{order['delivery_time']}\n"
-            f"{'─'*20}\n\n"
-            f"請確認資料是否正確？"
-        )
-
-        quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="✅ 確認送出", text="確認送出")),
-            QuickReplyButton(action=MessageAction(label="❌ 重新填寫", text="重新填寫")),
-        ])
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
-        )
+        _show_confirm(event.reply_token, state, user_id)
         return
 
-    # Step 7：確認送出 or 重新填寫
+    # ─── Step 7：確認送出 or 重新填寫 ───
     if step == 7:
         if text == "重新填寫":
             reset_state(user_id)
             state = get_state(user_id)
             state["step"] = 1
-            reply = (
-                "🔄 重新開始填寫！\n\n"
-                "請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）："
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text=(
+                        "🔄 重新開始填寫！\n\n"
+                        "請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）：\n"
+                        "（輸入「取消」可隨時離開）"
+                    )
+                )
             )
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
             return
 
         if text == "確認送出":
@@ -213,7 +266,13 @@ def handle_message(event):
             qty_b = order["qty_b"]
             subtotal, shipping, total = calculate_order(qty_a, qty_b)
 
-            # 用戶確認訊息
+            # 儲存客戶資料到 user_profiles
+            user_profiles[user_id] = {
+                "name": order["name"],
+                "phone": order["phone"],
+                "address": order["address"]
+            }
+
             user_msg = (
                 f"✅ 訂單已送出！\n"
                 f"{'─'*20}\n"
@@ -236,7 +295,6 @@ def handle_message(event):
                 f"匯款後請傳匯款截圖，我們確認後將盡快安排出貨！🙏"
             )
 
-            # 店家通知訊息
             owner_msg = (
                 f"🔔 新訂單通知！\n"
                 f"{'─'*20}\n"
@@ -261,45 +319,109 @@ def handle_message(event):
             reset_state(user_id)
             return
 
-        # 如果亂打字，重新顯示確認按鈕
-        order = state["order"]
-        qty_a = order["qty_a"]
-        qty_b = order["qty_b"]
-        subtotal, shipping, total = calculate_order(qty_a, qty_b)
-
-        confirm_msg = (
-            f"📋 請確認您的訂單內容：\n"
-            f"{'─'*20}\n"
-            f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
-            f"🥟 韭黃黑豬肉：{qty_b} 包\n"
-            f"{'─'*20}\n"
-            f"小計：NT${subtotal}\n"
-            f"運費：NT${shipping}\n"
-            f"💰 總計：NT${total}\n"
-            f"{'─'*20}\n"
-            f"姓名：{order['name']}\n"
-            f"電話：{order['phone']}\n"
-            f"地址：{order['address']}\n"
-            f"到貨時間：{order['delivery_time']}\n"
-            f"{'─'*20}\n\n"
-            f"請點選下方按鈕："
-        )
-
-        quick_reply = QuickReply(items=[
-            QuickReplyButton(action=MessageAction(label="✅ 確認送出", text="確認送出")),
-            QuickReplyButton(action=MessageAction(label="❌ 重新填寫", text="重新填寫")),
-        ])
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
-        )
+        # 亂打字 → 重新顯示確認
+        _show_confirm(event.reply_token, state, user_id)
         return
 
-    # 預設回覆
+    # ─── 預設回覆 ───
+    quick_reply = QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="🛒 開始訂購", text="開始訂購")),
+    ])
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text="請輸入「訂購」開始訂單 🥟")
+        TextSendMessage(
+            text="👋 歡迎來到 A-MU 水餃！\n點下方按鈕開始訂購 🥟",
+            quick_reply=quick_reply
+        )
     )
+
+
+# ─────────────────────────────────────────
+# 輔助函式
+# ─────────────────────────────────────────
+
+def _go_to_name_step(user_id, reply_token, state):
+    """判斷是否有舊資料，決定顯示沿用按鈕或直接問姓名"""
+    profile = user_profiles.get(user_id)
+    if profile:
+        state["step"] = 3
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="✅ 沿用上次資料", text="沿用上次資料")),
+            QuickReplyButton(action=MessageAction(label="✏️ 重新填寫", text="重新填寫資料")),
+            QuickReplyButton(action=MessageAction(label="❌ 取消訂單", text="取消")),
+        ])
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(
+                text=(
+                    f"查到您上次的資料：\n"
+                    f"{'─'*20}\n"
+                    f"姓名：{profile['name']}\n"
+                    f"電話：{profile['phone']}\n"
+                    f"地址：{profile['address']}\n"
+                    f"{'─'*20}\n"
+                    f"是否沿用上次資料？"
+                ),
+                quick_reply=quick_reply
+            )
+        )
+    else:
+        state["step"] = 3
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text="請輸入您的【姓名】：\n（輸入「取消」可隨時離開）")
+        )
+
+
+def _ask_delivery_time(reply_token, error=False):
+    """顯示到貨時間選項"""
+    quick_reply = QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="平日", text="平日")),
+        QuickReplyButton(action=MessageAction(label="禮拜六", text="禮拜六")),
+        QuickReplyButton(action=MessageAction(label="皆可", text="皆可")),
+        QuickReplyButton(action=MessageAction(label="❌ 取消訂單", text="取消")),
+    ])
+    msg = "❌ 請點選下方按鈕選擇到貨時間：" if error else "請選擇【希望到貨時間】："
+    line_bot_api.reply_message(
+        reply_token,
+        TextSendMessage(text=msg, quick_reply=quick_reply)
+    )
+
+
+def _show_confirm(reply_token, state, user_id):
+    """顯示訂單確認頁"""
+    order = state["order"]
+    qty_a = order["qty_a"]
+    qty_b = order["qty_b"]
+    subtotal, shipping, total = calculate_order(qty_a, qty_b)
+
+    confirm_msg = (
+        f"📋 請確認您的訂單內容：\n"
+        f"{'─'*20}\n"
+        f"🥟 高麗菜韭黃黑豬肉：{qty_a} 包\n"
+        f"🥟 韭黃黑豬肉：{qty_b} 包\n"
+        f"{'─'*20}\n"
+        f"小計：NT${subtotal}\n"
+        f"運費：NT${shipping}\n"
+        f"💰 總計：NT${total}\n"
+        f"{'─'*20}\n"
+        f"姓名：{order['name']}\n"
+        f"電話：{order['phone']}\n"
+        f"地址：{order['address']}\n"
+        f"到貨時間：{order['delivery_time']}\n"
+        f"{'─'*20}\n\n"
+        f"請確認資料是否正確？"
+    )
+
+    quick_reply = QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="✅ 確認送出", text="確認送出")),
+        QuickReplyButton(action=MessageAction(label="❌ 重新填寫", text="重新填寫")),
+    ])
+    line_bot_api.reply_message(
+        reply_token,
+        TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
+    )
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
