@@ -44,6 +44,7 @@ def get_state(user_id):
             .select("state") \
             .eq("user_id", user_id) \
             .execute()
+        print(f"[get_state] user_id={user_id}, result={result.data}")
         if result.data:
             return result.data[0]["state"]
         return {}
@@ -58,7 +59,8 @@ def set_state(user_id, state):
             "user_id": user_id,
             "state": state,
             "updated_at": datetime.datetime.utcnow().isoformat()
-        }).execute()
+        }, on_conflict="user_id").execute()
+        print(f"[set_state] user_id={user_id}, state={state}")
     except Exception as e:
         print(f"[set_state] 錯誤：{e}")
 
@@ -69,6 +71,7 @@ def reset_state(user_id):
             .delete() \
             .eq("user_id", user_id) \
             .execute()
+        print(f"[reset_state] user_id={user_id} 已清除")
     except Exception as e:
         print(f"[reset_state] 錯誤：{e}")
 
@@ -393,6 +396,7 @@ def notify_owner(state, line_display_name="", order_id=None):
     print(f"[notify_owner] ===== 開始執行 =====")
     print(f"[notify_owner] OWNER_ID = {OWNER_ID}")
     print(f"[notify_owner] order_id = {order_id}")
+    print(f"[notify_owner] state = {state}")
     print(f"[notify_owner] line_display_name = {line_display_name}")
 
     qty_a = state.get("qty_a", 0)
@@ -413,14 +417,14 @@ def notify_owner(state, line_display_name="", order_id=None):
                 TextComponent(text="🔔 新訂單通知", weight="bold", size="xl", color="#333333"),
                 SeparatorComponent(margin="md"),
                 TextComponent(text=f"💬 LINE：{line_display_name}", size="sm", color="#555555", margin="md"),
-                TextComponent(text=f"👤 姓名：{state.get('name')}", size="sm", color="#555555", margin="sm"),
-                TextComponent(text=f"📞 電話：{state.get('phone')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(text=f"👤 姓名：{state.get('name', '')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(text=f"📞 電話：{state.get('phone', '')}", size="sm", color="#555555", margin="sm"),
                 TextComponent(
-                    text=f"📍 地址：{state.get('address')}",
+                    text=f"📍 地址：{state.get('address', '')}",
                     size="sm", color="#555555", margin="sm", wrap=True
                 ),
                 TextComponent(
-                    text=f"🚚 到貨：{state.get('delivery_time')}",
+                    text=f"🚚 到貨：{state.get('delivery_time', '')}",
                     size="sm", color="#555555", margin="sm"
                 ),
                 SeparatorComponent(margin="md"),
@@ -723,7 +727,7 @@ def handle_message(event):
     state = get_state(user_id)
     step = state.get("step", 0)
 
-    print(f"[handle_message] step={step}")
+    print(f"[handle_message] step={step}, state={state}")
 
     # Step 0：歡迎畫面
     if step == 0:
@@ -783,11 +787,24 @@ def handle_message(event):
 
         print(f"[step9] order_id={order_id}, line_display_name={line_display_name}")
 
+        if not order_id:
+            print(f"[step9] ❌ order_id 為空！state={state}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❗ 找不到您的訂單，請重新訂購或聯繫客服。")
+            )
+            reset_state(user_id)
+            return
+
         # 更新資料庫的後5碼
-        supabase.table("orders") \
-            .update({"last_5_digits": user_message}) \
-            .eq("id", order_id) \
-            .execute()
+        try:
+            supabase.table("orders") \
+                .update({"last_5_digits": user_message}) \
+                .eq("id", order_id) \
+                .execute()
+            print(f"[step9] ✅ 後5碼已更新到資料庫")
+        except Exception as e:
+            print(f"[step9] ❌ 更新後5碼失敗：{e}")
 
         state["last_5_digits"] = user_message
 
@@ -848,19 +865,25 @@ def handle_postback(event):
                 .eq("id", order_id) \
                 .execute()
 
-            order = result.data[0]
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text=(
-                        f"✅ 已確認收款！\n"
-                        f"訂單 #{order_id}\n"
-                        f"客戶：{order['name']}\n"
-                        f"總計：NT${order['total']}\n\n"
-                        f"此訂單將在下次匯出時納入 📋"
+            if result.data:
+                order = result.data[0]
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(
+                        text=(
+                            f"✅ 已確認收款！\n"
+                            f"訂單 #{order_id}\n"
+                            f"客戶：{order.get('name', '')}\n"
+                            f"總計：NT${order.get('total', '')}\n\n"
+                            f"此訂單將在下次匯出時納入 📋"
+                        )
                     )
                 )
-            )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"⚠️ 找不到訂單 #{order_id}，請確認。")
+                )
         except Exception as e:
             print(f"[confirm_payment] 失敗：{e}")
             line_bot_api.reply_message(
@@ -872,7 +895,7 @@ def handle_postback(event):
     state = get_state(user_id)
     step = state.get("step", 0)
 
-    print(f"[handle_postback] step={step}")
+    print(f"[handle_postback] step={step}, state={state}")
 
     # Step 1：選擇高麗菜數量
     if action == "qty_a" and step == 1:
@@ -985,6 +1008,10 @@ def handle_postback(event):
             state["order_id"] = order_id
             state["line_display_name"] = line_display_name
             set_state(user_id, state)
+
+            # 確認 state 有正確寫入
+            verify = get_state(user_id)
+            print(f"[confirm_order] 寫入後驗證 state={verify}")
 
             subtotal, shipping, total = calc_order(
                 state.get("qty_a", 0), state.get("qty_b", 0)
