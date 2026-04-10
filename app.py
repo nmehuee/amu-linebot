@@ -2,6 +2,7 @@ import os
 import io
 import re
 import datetime
+import traceback
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from flask import Flask, request, abort
@@ -165,7 +166,10 @@ def send_qty_b_flex(reply_token, qty_a):
             layout="vertical",
             contents=[
                 TextComponent(text="韭菜黑豬水餃", weight="bold", size="lg", color="#333333"),
-                TextComponent(text=f"已選高麗菜 {qty_a} 包，最多還可選 {remaining} 包", size="sm", color="#888888", margin="sm"),
+                TextComponent(
+                    text=f"已選高麗菜 {qty_a} 包，最多還可選 {remaining} 包",
+                    size="sm", color="#888888", margin="sm"
+                ),
                 SeparatorComponent(margin="md"),
                 *rows,
                 make_cancel_button()
@@ -348,6 +352,138 @@ def send_order_summary_flex(reply_token, state):
     )
 
 
+def notify_owner(state, line_display_name="", order_id=None):
+    print(f"[notify_owner] ===== 開始執行 =====")
+    print(f"[notify_owner] OWNER_ID = {OWNER_ID}")
+    print(f"[notify_owner] order_id = {order_id}")
+    print(f"[notify_owner] line_display_name = {line_display_name}")
+
+    qty_a = state.get("qty_a", 0)
+    qty_b = state.get("qty_b", 0)
+    subtotal, shipping, total = calc_order(qty_a, qty_b)
+
+    content_lines = []
+    if qty_a > 0:
+        content_lines.append(f"高麗菜黑豬水餃 x{qty_a} 包")
+    if qty_b > 0:
+        content_lines.append(f"韭菜黑豬水餃 x{qty_b} 包")
+    content_str = "、".join(content_lines)
+
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=[
+                TextComponent(text="🔔 新訂單通知", weight="bold", size="xl", color="#333333"),
+                SeparatorComponent(margin="md"),
+                TextComponent(text=f"💬 LINE：{line_display_name}", size="sm", color="#555555", margin="md"),
+                TextComponent(text=f"👤 姓名：{state.get('name')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(text=f"📞 電話：{state.get('phone')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(
+                    text=f"📍 地址：{state.get('address')}",
+                    size="sm", color="#555555", margin="sm", wrap=True
+                ),
+                TextComponent(
+                    text=f"🚚 到貨：{state.get('delivery_time')}",
+                    size="sm", color="#555555", margin="sm"
+                ),
+                SeparatorComponent(margin="md"),
+                TextComponent(
+                    text=f"🛒 {content_str}",
+                    size="sm", color="#333333", margin="md", wrap=True
+                ),
+                BoxComponent(
+                    layout="horizontal", margin="sm",
+                    contents=[
+                        TextComponent(text="小計", size="sm", color="#888888"),
+                        TextComponent(text=f"NT${subtotal}", size="sm", color="#333333", align="end"),
+                    ]
+                ),
+                BoxComponent(
+                    layout="horizontal", margin="sm",
+                    contents=[
+                        TextComponent(text="運費", size="sm", color="#888888"),
+                        TextComponent(
+                            text="免運 🎉" if shipping == 0 else f"NT${shipping}",
+                            size="sm", color="#333333", align="end"
+                        ),
+                    ]
+                ),
+                BoxComponent(
+                    layout="horizontal", margin="sm",
+                    contents=[
+                        TextComponent(text="總計", size="sm", color="#333333", weight="bold"),
+                        TextComponent(
+                            text=f"NT${total}",
+                            size="sm", color="#FF6B6B", weight="bold", align="end"
+                        ),
+                    ]
+                ),
+                SeparatorComponent(margin="md"),
+                TextComponent(
+                    text=f"💰 匯款後5碼：{state.get('last_5_digits', '待確認')}",
+                    size="sm", color="#FF6B6B", margin="md", weight="bold"
+                ),
+            ]
+        ),
+        footer=BoxComponent(
+            layout="vertical",
+            contents=[
+                ButtonComponent(
+                    action=PostbackAction(
+                        label="✅ 確認收款",
+                        data=f"action=confirm_payment&order_id={order_id}"
+                    ),
+                    style="primary",
+                    color="#28A745"
+                )
+            ]
+        )
+    )
+
+    try:
+        print(f"[notify_owner] 準備發送 push_message 給 {OWNER_ID}...")
+        line_bot_api.push_message(
+            OWNER_ID,
+            FlexSendMessage(alt_text="🔔 新訂單通知", contents=bubble)
+        )
+        print(f"[notify_owner] ✅ 發送成功！")
+    except Exception as e:
+        print(f"[notify_owner] ❌ 發送失敗：{e}")
+        traceback.print_exc()
+
+
+def save_order(user_id, state, last_5_digits=""):
+    qty_a = state.get("qty_a", 0)
+    qty_b = state.get("qty_b", 0)
+    subtotal, shipping, total = calc_order(qty_a, qty_b)
+
+    result = supabase.table("orders").insert({
+        "user_id": user_id,
+        "name": state.get("name"),
+        "phone": state.get("phone"),
+        "address": state.get("address"),
+        "delivery_time": state.get("delivery_time"),
+        "qty_a": qty_a,
+        "qty_b": qty_b,
+        "subtotal": subtotal,
+        "shipping": shipping,
+        "total": total,
+        "exported": False,
+        "status": "pending",
+        "last_5_digits": last_5_digits
+    }).execute()
+
+    supabase.table("user_profiles").upsert({
+        "user_id": user_id,
+        "name": state.get("name"),
+        "phone": state.get("phone"),
+        "address": state.get("address"),
+        "updated_at": datetime.datetime.utcnow().isoformat()
+    }).execute()
+
+    return result.data[0]["id"]
+
+
 def export_orders_to_excel():
     try:
         result = supabase.table("orders") \
@@ -398,7 +534,10 @@ def export_orders_to_excel():
                 "禮拜六": "週六",
                 "皆可": "不限"
             }
-            delivery_display = delivery_map.get(order.get("delivery_time", ""), order.get("delivery_time", ""))
+            delivery_display = delivery_map.get(
+                order.get("delivery_time", ""),
+                order.get("delivery_time", "")
+            )
 
             row_data = [
                 "冷凍",
@@ -417,7 +556,11 @@ def export_orders_to_excel():
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
                 cell.border = thin_border
                 if row_idx % 2 == 0:
-                    cell.fill = PatternFill(start_color="DCE6F1", end_color="DCE6F1", fill_type="solid")
+                    cell.fill = PatternFill(
+                        start_color="DCE6F1",
+                        end_color="DCE6F1",
+                        fill_type="solid"
+                    )
 
         col_widths = [10, 12, 12, 15, 40, 14, 35, 12, 14]
         for col_idx, width in enumerate(col_widths, start=1):
@@ -451,123 +594,9 @@ def export_orders_to_excel():
         return public_url, f"✅ 成功匯出 {len(orders)} 筆訂單！"
 
     except Exception as e:
-        print(f"匯出錯誤: {e}")
+        print(f"[export] 匯出錯誤: {e}")
+        traceback.print_exc()
         return None, f"❌ 匯出失敗：{str(e)}"
-
-
-def save_order(user_id, state, last_5_digits=""):
-    qty_a = state.get("qty_a", 0)
-    qty_b = state.get("qty_b", 0)
-    subtotal, shipping, total = calc_order(qty_a, qty_b)
-
-    result = supabase.table("orders").insert({
-        "user_id": user_id,
-        "name": state.get("name"),
-        "phone": state.get("phone"),
-        "address": state.get("address"),
-        "delivery_time": state.get("delivery_time"),
-        "qty_a": qty_a,
-        "qty_b": qty_b,
-        "subtotal": subtotal,
-        "shipping": shipping,
-        "total": total,
-        "exported": False,
-        "status": "pending",
-        "last_5_digits": last_5_digits
-    }).execute()
-
-    supabase.table("user_profiles").upsert({
-        "user_id": user_id,
-        "name": state.get("name"),
-        "phone": state.get("phone"),
-        "address": state.get("address"),
-        "updated_at": datetime.datetime.utcnow().isoformat()
-    }).execute()
-
-    return result.data[0]["id"]
-
-
-def notify_owner(state, line_display_name="", order_id=None):
-    qty_a = state.get("qty_a", 0)
-    qty_b = state.get("qty_b", 0)
-    subtotal, shipping, total = calc_order(qty_a, qty_b)
-
-    content_lines = []
-    if qty_a > 0:
-        content_lines.append(f"高麗菜黑豬水餃 x{qty_a} 包")
-    if qty_b > 0:
-        content_lines.append(f"韭菜黑豬水餃 x{qty_b} 包")
-    content_str = "、".join(content_lines)
-
-    bubble = BubbleContainer(
-        body=BoxComponent(
-            layout="vertical",
-            contents=[
-                TextComponent(text="🔔 新訂單通知", weight="bold", size="xl", color="#333333"),
-                SeparatorComponent(margin="md"),
-                TextComponent(text=f"💬 LINE：{line_display_name}", size="sm", color="#555555", margin="md"),
-                TextComponent(text=f"👤 姓名：{state.get('name')}", size="sm", color="#555555", margin="sm"),
-                TextComponent(text=f"📞 電話：{state.get('phone')}", size="sm", color="#555555", margin="sm"),
-                TextComponent(
-                    text=f"📍 地址：{state.get('address')}",
-                    size="sm", color="#555555", margin="sm", wrap=True
-                ),
-                TextComponent(text=f"🚚 到貨：{state.get('delivery_time')}", size="sm", color="#555555", margin="sm"),
-                SeparatorComponent(margin="md"),
-                TextComponent(text=f"🛒 {content_str}", size="sm", color="#333333", margin="md", wrap=True),
-                BoxComponent(
-                    layout="horizontal",
-                    margin="sm",
-                    contents=[
-                        TextComponent(text="小計", size="sm", color="#888888"),
-                        TextComponent(text=f"NT${subtotal}", size="sm", color="#333333", align="end"),
-                    ]
-                ),
-                BoxComponent(
-                    layout="horizontal",
-                    margin="sm",
-                    contents=[
-                        TextComponent(text="運費", size="sm", color="#888888"),
-                        TextComponent(
-                            text="免運 🎉" if shipping == 0 else f"NT${shipping}",
-                            size="sm", color="#333333", align="end"
-                        ),
-                    ]
-                ),
-                BoxComponent(
-                    layout="horizontal",
-                    margin="sm",
-                    contents=[
-                        TextComponent(text="總計", size="sm", color="#333333", weight="bold"),
-                        TextComponent(text=f"NT${total}", size="sm", color="#FF6B6B", weight="bold", align="end"),
-                    ]
-                ),
-                SeparatorComponent(margin="md"),
-                TextComponent(
-                    text=f"💰 匯款後5碼：{state.get('last_5_digits', '待確認')}",
-                    size="sm", color="#FF6B6B", margin="md", weight="bold"
-                ),
-            ]
-        ),
-        footer=BoxComponent(
-            layout="vertical",
-            contents=[
-                ButtonComponent(
-                    action=PostbackAction(
-                        label="✅ 確認收款",
-                        data=f"action=confirm_payment&order_id={order_id}"
-                    ),
-                    style="primary",
-                    color="#28A745"
-                )
-            ]
-        )
-    )
-
-    line_bot_api.push_message(
-        OWNER_ID,
-        FlexSendMessage(alt_text="🔔 新訂單通知", contents=bubble)
-    )
 
 
 @app.route("/callback", methods=["POST"])
@@ -586,6 +615,8 @@ def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text.strip()
 
+    print(f"[handle_message] user_id={user_id}, message={user_message}")
+
     source_type = event.source.type
     if source_type == "group":
         source_id = event.source.group_id
@@ -594,6 +625,7 @@ def handle_message(event):
     else:
         source_id = user_id
 
+    # 取消關鍵字（僅限私訊）
     if source_type != "group":
         cancel_keywords = ["取消", "離開", "掰掰"]
         if user_message in cancel_keywords:
@@ -604,7 +636,7 @@ def handle_message(event):
             )
             return
 
-    # 🔧 暫時用：查詢自己的 User ID（部署後傳「我的ID」給 bot 即可查詢）
+    # 查詢自己的 LINE ID
     if user_message == "我的ID":
         line_bot_api.reply_message(
             event.reply_token,
@@ -612,6 +644,26 @@ def handle_message(event):
         )
         return
 
+    # 測試通知（僅限 OWNER）
+    if user_message == "測試通知" and user_id == OWNER_ID:
+        print(f"[測試通知] 由 {user_id} 觸發")
+        test_state = {
+            "qty_a": 2,
+            "qty_b": 1,
+            "name": "測試用戶",
+            "phone": "0912345678",
+            "address": "台灣某地某路某號",
+            "delivery_time": "平日",
+            "last_5_digits": "99999"
+        }
+        notify_owner(test_state, line_display_name="測試帳號", order_id="TEST-001")
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="✅ 測試通知已發送，請確認是否收到！")
+        )
+        return
+
+    # 匯出 Excel（僅限 OWNER）
     if user_message == "匯出" and (user_id == OWNER_ID or source_id == OWNER_ID):
         url, msg = export_orders_to_excel()
         reply_text = f"{msg}\n\n📥 下載連結：\n{url}" if url else msg
@@ -621,16 +673,21 @@ def handle_message(event):
         )
         return
 
+    # 群組訊息不處理後續流程
     if source_type == "group":
         return
 
     state = user_states.get(user_id, {})
     step = state.get("step", 0)
 
+    print(f"[handle_message] step={step}")
+
+    # Step 0：歡迎畫面
     if step == 0:
         send_welcome(event.reply_token)
         return
 
+    # Step 4：輸入姓名
     if step == 4:
         state["name"] = user_message
         state["step"] = 5
@@ -641,6 +698,7 @@ def handle_message(event):
         )
         return
 
+    # Step 5：輸入電話
     if step == 5:
         if not re.match(r'^09\d{8}$', user_message):
             line_bot_api.reply_message(
@@ -657,6 +715,7 @@ def handle_message(event):
         )
         return
 
+    # Step 6：輸入地址
     if step == 6:
         state["address"] = user_message
         state["step"] = 7
@@ -664,7 +723,11 @@ def handle_message(event):
         send_delivery_time_flex(event.reply_token)
         return
 
+    # Step 9：輸入匯款後5碼
     if step == 9:
+        print(f"[step9] 收到後5碼輸入：{user_message}")
+        print(f"[step9] state = {state}")
+
         if not re.match(r'^\d{5}$', user_message):
             line_bot_api.reply_message(
                 event.reply_token,
@@ -675,12 +738,17 @@ def handle_message(event):
         order_id = state.get("order_id")
         line_display_name = state.get("line_display_name", "（無法取得）")
 
+        print(f"[step9] order_id={order_id}, line_display_name={line_display_name}")
+
+        # 更新資料庫的後5碼
         supabase.table("orders") \
             .update({"last_5_digits": user_message}) \
             .eq("id", order_id) \
             .execute()
 
         state["last_5_digits"] = user_message
+
+        # 通知店家
         notify_owner(state, line_display_name, order_id)
 
         reset_state(user_id)
@@ -696,6 +764,7 @@ def handle_message(event):
         )
         return
 
+    # 其他情況
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text="請使用按鈕操作，或輸入「取消」結束訂購 🥟")
@@ -709,6 +778,9 @@ def handle_postback(event):
     params = dict(item.split("=") for item in data.split("&"))
     action = params.get("action")
 
+    print(f"[handle_postback] user_id={user_id}, action={action}, params={params}")
+
+    # 取消
     if action == "cancel":
         reset_state(user_id)
         line_bot_api.reply_message(
@@ -717,13 +789,16 @@ def handle_postback(event):
         )
         return
 
+    # 開始訂購
     if action == "start_order":
         user_states[user_id] = {"step": 1}
         send_qty_a_flex(event.reply_token)
         return
 
+    # 確認收款（店家按鈕）
     if action == "confirm_payment":
         order_id = params.get("order_id")
+        print(f"[confirm_payment] order_id={order_id}")
         try:
             result = supabase.table("orders") \
                 .update({"status": "paid"}) \
@@ -744,6 +819,7 @@ def handle_postback(event):
                 )
             )
         except Exception as e:
+            print(f"[confirm_payment] 失敗：{e}")
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text=f"❌ 更新失敗：{str(e)}")
@@ -753,6 +829,9 @@ def handle_postback(event):
     state = user_states.get(user_id, {})
     step = state.get("step", 0)
 
+    print(f"[handle_postback] step={step}")
+
+    # Step 1：選擇高麗菜數量
     if action == "qty_a" and step == 1:
         qty_a = int(params.get("value", 0))
         state["qty_a"] = qty_a
@@ -761,6 +840,7 @@ def handle_postback(event):
         send_qty_b_flex(event.reply_token, qty_a)
         return
 
+    # Step 2：選擇韭菜數量
     if action == "qty_b" and step == 2:
         qty_a = state.get("qty_a", 0)
         qty_b = int(params.get("value", 0))
@@ -769,7 +849,9 @@ def handle_postback(event):
         if total_packs < MIN_PACKS:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text=f"❗ 最少需訂購 {MIN_PACKS} 包，目前共 {total_packs} 包，請重新選擇。")
+                TextSendMessage(
+                    text=f"❗ 最少需訂購 {MIN_PACKS} 包，目前共 {total_packs} 包，請重新選擇。"
+                )
             )
             line_bot_api.push_message(
                 user_id,
@@ -806,6 +888,7 @@ def handle_postback(event):
             )
         return
 
+    # Step 3：沿用舊資料
     if action == "use_saved" and step == 3:
         profile_result = supabase.table("user_profiles") \
             .select("*") \
@@ -822,6 +905,7 @@ def handle_postback(event):
             send_delivery_time_flex(event.reply_token)
         return
 
+    # Step 3：重新填寫
     if action == "reenter" and step == 3:
         state["step"] = 4
         user_states[user_id] = state
@@ -831,6 +915,7 @@ def handle_postback(event):
         )
         return
 
+    # Step 7：選擇到貨時間
     if action == "delivery" and step == 7:
         state["delivery_time"] = params.get("value", "皆可")
         state["step"] = 8
@@ -838,15 +923,20 @@ def handle_postback(event):
         send_order_summary_flex(event.reply_token, state)
         return
 
+    # Step 8：確認送出訂單
     if action == "confirm_order" and step == 8:
+        print(f"[confirm_order] 開始儲存訂單")
         try:
             try:
                 profile = line_bot_api.get_profile(user_id)
                 line_display_name = profile.display_name
-            except Exception:
+                print(f"[confirm_order] 取得顯示名稱：{line_display_name}")
+            except Exception as e:
+                print(f"[confirm_order] 無法取得顯示名稱：{e}")
                 line_display_name = "（無法取得）"
 
             order_id = save_order(user_id, state, last_5_digits="")
+            print(f"[confirm_order] 訂單儲存成功，order_id={order_id}")
 
             state["step"] = 9
             state["order_id"] = order_id
@@ -871,7 +961,8 @@ def handle_postback(event):
                 )
             )
         except Exception as e:
-            print(f"訂單儲存失敗: {e}")
+            print(f"[confirm_order] 訂單儲存失敗: {e}")
+            traceback.print_exc()
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text=f"❌ 訂單送出失敗，請稍後再試。\n錯誤：{str(e)}")
