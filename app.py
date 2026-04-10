@@ -25,8 +25,6 @@ FREE_SHIPPING_THRESHOLD = 2000
 MIN_ORDER = 2
 MAX_ORDER = 15
 
-ORDER_KEYWORDS = {'go', 'GO', 'Go'}
-
 
 @app.route('/')
 def index():
@@ -47,7 +45,6 @@ def callback():
 def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
     """建立數量選擇的 Flex Message，格狀排列"""
 
-    # 建立數字按鈕 0~max_qty
     buttons = []
     for i in range(0, max_qty + 1):
         buttons.append({
@@ -63,11 +60,9 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
             "flex": 1
         })
 
-    # 每排4個，組成多排
     rows = []
     for row_start in range(0, len(buttons), 4):
         row_buttons = buttons[row_start:row_start + 4]
-        # 補齊空白（最後一排不足4個時）
         while len(row_buttons) < 4:
             row_buttons.append({
                 "type": "filler"
@@ -79,7 +74,6 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
             "contents": row_buttons
         })
 
-    # 取消按鈕
     cancel_row = {
         "type": "box",
         "layout": "horizontal",
@@ -100,19 +94,6 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
 
     flex_content = {
         "type": "bubble",
-        "header": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {
-                    "type": "image",
-                    "url": "https://i.imgur.com/your_logo.png",  # 可換成你的 logo
-                    "size": "xxs",
-                    "align": "start"
-                }
-            ],
-            "paddingBottom": "none"
-        },
         "body": {
             "type": "box",
             "layout": "vertical",
@@ -128,7 +109,8 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
                     "type": "text",
                     "text": subtitle,
                     "size": "sm",
-                    "color": "#888888"
+                    "color": "#888888",
+                    "wrap": True
                 },
                 {
                     "type": "separator"
@@ -145,11 +127,71 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
     return FlexSendMessage(alt_text=title, contents=flex_content)
 
 
+def make_pickup_flex():
+    """建立取貨日期選擇的 Flex Message"""
+    options = ['平日', '禮拜六', '皆可']
+
+    buttons = []
+    for option in options:
+        buttons.append({
+            "type": "button",
+            "action": {
+                "type": "postback",
+                "label": option,
+                "data": f"pickup_day={option}"
+            },
+            "style": "primary",
+            "color": "#E05C5C",
+            "height": "sm"
+        })
+
+    flex_content = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "希望取貨日期",
+                    "weight": "bold",
+                    "size": "xl"
+                },
+                {
+                    "type": "text",
+                    "text": "請選擇方便取貨的時間",
+                    "size": "sm",
+                    "color": "#888888"
+                },
+                {
+                    "type": "separator"
+                },
+                *buttons,
+                {
+                    "type": "separator"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "postback",
+                        "label": "✖ 取消訂單",
+                        "data": "cancel"
+                    },
+                    "style": "secondary",
+                    "height": "sm"
+                }
+            ]
+        }
+    }
+
+    return FlexSendMessage(alt_text='希望取貨日期', contents=flex_content)
+
+
 def start_order(user_id, reply_token):
     user_states[user_id] = 'selecting_cabbage'
     user_orders[user_id] = {}
 
-    # 先送歡迎訊息，再送選單
     welcome = TextSendMessage(
         text=(
             '歡迎來到 A-MU水餃！🥟\n\n'
@@ -197,7 +239,7 @@ def send_order_summary(user_id, reply_token):
     phone = order.get('phone', '')
     address = order.get('address', '')
     delivery_time = order.get('delivery_time', '')
-    remarks = order.get('remarks', '無')
+    remarks = order.get('remarks', 'No')
 
     summary = (
         f'📋 訂單確認\n'
@@ -212,7 +254,7 @@ def send_order_summary(user_id, reply_token):
         f'👤 姓名：{name}\n'
         f'📞 電話：{phone}\n'
         f'📍 地址：{address}\n'
-        f'🕐 到貨時間：{delivery_time}\n'
+        f'🕐 取貨日期：{delivery_time}\n'
         f'📝 備註：{remarks}\n'
         f'────────────────────\n'
         f'💳 匯款資訊：\n'
@@ -296,6 +338,16 @@ def handle_postback(event):
             )
         )
 
+    # 選擇取貨日期
+    elif data.startswith('pickup_day='):
+        day = data.split('=')[1]
+        user_orders[user_id]['delivery_time'] = day
+        user_states[user_id] = 'input_remarks'
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f'✅ 取貨日期：{day}\n\n請輸入【備註】\n（無備註請輸入「No」）')
+        )
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -337,19 +389,10 @@ def handle_message(event):
     # 輸入地址
     elif state == 'input_address':
         user_orders[user_id]['address'] = text
-        user_states[user_id] = 'input_delivery_time'
+        user_states[user_id] = 'selecting_pickup_day'
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text='請輸入【希望到貨時間】\n（例如：2026/04/15 下午）')
-        )
-
-    # 輸入到貨時間
-    elif state == 'input_delivery_time':
-        user_orders[user_id]['delivery_time'] = text
-        user_states[user_id] = 'input_remarks'
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text='請輸入【備註】\n（無備註請輸入「無」）')
+            make_pickup_flex()
         )
 
     # 輸入備註
