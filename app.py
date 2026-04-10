@@ -1,4 +1,4 @@
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -7,18 +7,24 @@ from linebot.models import (
     FlexSendMessage
 )
 import os
+from supabase import create_client, Client
+from openpyxl import Workbook
+from datetime import datetime
+import io
 
 app = Flask(__name__)
 
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
 OWNER_ID = os.environ.get("OWNER_ID")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 user_states = {}
-user_profiles = {}
 
 CANCEL_QR = QuickReply(items=[
     QuickReplyButton(action=MessageAction(label="❌ 取消訂單", text="取消")),
@@ -53,6 +59,45 @@ def cancel_order(user_id, reply_token):
         )
     )
 
+def get_user_profile(user_id):
+    try:
+        res = supabase.table("user_profiles").select("*").eq("user_id", user_id).execute()
+        if res.data:
+            return res.data[0]
+    except Exception as e:
+        print(f"get_user_profile error: {e}")
+    return None
+
+def save_user_profile(user_id, name, phone, address):
+    try:
+        supabase.table("user_profiles").upsert({
+            "user_id": user_id,
+            "name": name,
+            "phone": phone,
+            "address": address,
+            "updated_at": datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"save_user_profile error: {e}")
+
+def save_order(user_id, order, subtotal, shipping, total):
+    try:
+        supabase.table("orders").insert({
+            "user_id": user_id,
+            "name": order["name"],
+            "phone": order["phone"],
+            "address": order["address"],
+            "delivery_time": order["delivery_time"],
+            "qty_a": order["qty_a"],
+            "qty_b": order["qty_b"],
+            "subtotal": subtotal,
+            "shipping": shipping,
+            "total": total,
+            "exported": False
+        }).execute()
+    except Exception as e:
+        print(f"save_order error: {e}")
+
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -68,7 +113,13 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     if event.source.type == "group":
-        print(f"✅ Group ID: {event.source.group_id}")
+        group_id = event.source.group_id
+        text = event.message.text.strip()
+        print(f"✅ Group ID: {group_id}")
+
+        # 匯出功能（只有 OWNER_ID 群組可用）
+        if group_id == OWNER_ID and text == "匯出":
+            _export_orders(event.reply_token, group_id)
         return
 
     user_id = event.source.user_id
@@ -175,7 +226,7 @@ def handle_message(event):
 
     if step == 3:
         if text == "沿用上次資料":
-            profile = user_profiles.get(user_id)
+            profile = get_user_profile(user_id)
             if profile:
                 state["order"]["name"] = profile["name"]
                 state["order"]["phone"] = profile["phone"]
@@ -248,11 +299,9 @@ def handle_message(event):
             qty_b = order["qty_b"]
             subtotal, shipping, total = calculate_order(qty_a, qty_b)
 
-            user_profiles[user_id] = {
-                "name": order["name"],
-                "phone": order["phone"],
-                "address": order["address"]
-            }
+            # 儲存到 Supabase
+            save_user_profile(user_id, order["name"], order["phone"], order["address"])
+            save_order(user_id, order, subtotal, shipping, total)
 
             # ── 送給用戶的 Flex Message ──
             flex_payment = {
@@ -461,7 +510,7 @@ def handle_message(event):
 
 
 def _go_to_name_step(user_id, reply_token, state):
-    profile = user_profiles.get(user_id)
+    profile = get_user_profile(user_id)
     state["step"] = 3
 
     if profile:
@@ -536,6 +585,82 @@ def _show_confirm(reply_token, state):
         reply_token,
         TextSendMessage(text=confirm_msg, quick_reply=quick_reply)
     )
+
+
+def _export_orders(reply_token, group_id):
+    try:
+        # 取得未匯出訂單
+        res = supabase.table("orders").select("*").eq("exported", False).execute()
+        orders = res.data
+
+        if not orders:
+            line_bot_api.reply_message(
+                reply_token,
+                TextSendMessage(text="📭 目前沒有新訂單可以匯出！")
+            )
+            return
+
+        # 建立 Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "訂單"
+
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        for row_idx, order in enumerate(orders, start=1):
+            qty_a = order.get("qty_a", 0)
+            qty_b = order.get("qty_b", 0)
+
+            parts = []
+            if qty_a > 0:
+                parts.append(f"高麗菜韭黃黑豬肉水餃x{qty_a}包")
+            if qty_b > 0:
+                parts.append(f"韭黃黑豬肉水餃x{qty_b}包")
+            goods = "、".join(parts)
+
+            ws.cell(row=row_idx, column=1, value="冷凍")           # A 溫層
+            ws.cell(row=row_idx, column=2, value=order["name"])    # B 收件人姓名
+            ws.cell(row=row_idx, column=3, value="")               # C 收件人電話（空白）
+            ws.cell(row=row_idx, column=4, value=order["phone"])   # D 收件人手機
+            ws.cell(row=row_idx, column=5, value=order["address"]) # E 收件人地址
+            ws.cell(row=row_idx, column=6, value=today)            # F 出貨日期
+            ws.cell(row=row_idx, column=7, value=goods)            # G 貨物內容
+            ws.cell(row=row_idx, column=8, value="冷凍食品")        # H 貨物類別
+            ws.cell(row=row_idx, column=9, value=order["delivery_time"])  # I 到貨時間
+
+        # 儲存到記憶體
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        # 上傳到 Supabase Storage
+        filename = f"orders_{today}_{datetime.now().strftime('%H%M%S')}.xlsx"
+        supabase.storage.from_("exports").upload(
+            filename,
+            output.getvalue(),
+            {"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        )
+
+        # 取得公開下載連結
+        public_url = supabase.storage.from_("exports").get_public_url(filename)
+
+        # 標記為已匯出
+        ids = [o["id"] for o in orders]
+        supabase.table("orders").update({"exported": True}).in_("id", ids).execute()
+
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(
+                text=f"✅ 匯出完成！共 {len(orders)} 筆訂單\n\n📥 下載連結：\n{public_url}"
+            )
+        )
+
+    except Exception as e:
+        print(f"_export_orders error: {e}")
+        line_bot_api.reply_message(
+            reply_token,
+            TextSendMessage(text=f"❌ 匯出失敗：{str(e)}")
+        )
 
 
 if __name__ == "__main__":
