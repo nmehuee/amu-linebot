@@ -438,10 +438,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text=(
-                    f'✅ 高麗菜韭黃黑豬肉{cabbage}包 + 韭菜黑豬肉{qty}包 = 共{total}包\n\n'
-                    f'請輸入您的【姓名】'
-                ),
+                text='請輸入您的【姓名】',  # ← 移除確認訊息
                 quick_reply=cancel_quick_reply()
             )
         )
@@ -454,7 +451,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text=f'✅ 取貨日期：{day}\n\n請輸入【備註】\n（無備註請輸入「No」）',
+                text='請輸入【備註】\n（無備註請輸入「No」）',  # ← 移除確認訊息
                 quick_reply=cancel_quick_reply()
             )
         )
