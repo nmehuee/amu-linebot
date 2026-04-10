@@ -329,15 +329,17 @@ def send_order_summary_flex(reply_token, state):
                     text="💳 付款資訊",
                     weight="bold", size="sm", color="#555555", margin="md"
                 ),
+                # ✅ 修改 1：豐原分行 → 頭份分行
                 TextComponent(
-                    text="中國信託銀行（822）\n豐原分行\n帳號：370540364486\n戶名：徐志帆",
+                    text="中國信託銀行（822）\n頭份分行\n帳號：370540364486\n戶名：徐志帆",
                     size="sm",
                     color="#1E90FF",
                     margin="sm",
                     wrap=True
                 ),
+                # ✅ 修改 2：截圖回傳 → 告知匯款帳號後5碼
                 TextComponent(
-                    text=f"請轉帳 NT${total} 並截圖回傳",
+                    text=f"請轉帳 NT${total}，完成後請告知匯款帳號後5碼",
                     size="sm",
                     color="#FF6B6B",
                     margin="sm",
@@ -771,7 +773,8 @@ def handle_postback(event):
                 TextSendMessage(
                     text=(
                         "✅ 訂單已送出！感謝您的訂購 🥟\n\n"
-                        "請完成轉帳後，截圖傳給我們確認。\n"
+                        # ✅ 修改 3：截圖傳給我們確認 → 告知匯款帳號後5碼
+                        "請完成轉帳後，告知匯款帳號後5碼，方便我們確認。\n"
                         "我們收到後會盡快安排出貨！"
                     )
                 )
