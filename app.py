@@ -105,9 +105,7 @@ def handle_message(event):
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text=(
-                        "🥟 請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）："
-                    ),
+                    text="🥟 請輸入【A 高麗菜韭黃黑豬肉】數量（0～15）：",
                     quick_reply=CANCEL_QR
                 )
             )
@@ -327,7 +325,7 @@ def handle_message(event):
                 f"銀行：中國信託(822)\n"
                 f"帳號：370540364486\n"
                 f"戶名：徐志帆\n\n"
-                f"匯款後請傳匯款截圖，確認後將盡快安排出貨！🙏"
+                f"匯款後請告知帳號後5碼，確認後將盡快安排出貨！🙏"
             )
 
             owner_msg = (
