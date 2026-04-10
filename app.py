@@ -455,7 +455,8 @@ def export_orders_to_excel():
         return None, f"❌ 匯出失敗：{str(e)}"
 
 
-def save_order(user_id, state):
+# ✅ 修改：加入 last_5_digits 參數
+def save_order(user_id, state, last_5_digits=""):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
     subtotal, shipping, total = calc_order(qty_a, qty_b)
@@ -472,7 +473,8 @@ def save_order(user_id, state):
         "shipping": shipping,
         "total": total,
         "exported": False,
-        "status": "pending"
+        "status": "pending",
+        "last_5_digits": last_5_digits  # ✅ 新增
     }).execute()
 
     supabase.table("user_profiles").upsert({
@@ -540,6 +542,12 @@ def notify_owner(state, line_display_name="", order_id=None):
                         TextComponent(text="總計", size="sm", color="#333333", weight="bold"),
                         TextComponent(text=f"NT${total}", size="sm", color="#FF6B6B", weight="bold", align="end"),
                     ]
+                ),
+                SeparatorComponent(margin="md"),
+                # ✅ 新增：顯示後5碼
+                TextComponent(
+                    text=f"💰 匯款後5碼：{state.get('last_5_digits', '待確認')}",
+                    size="sm", color="#FF6B6B", margin="md", weight="bold"
                 ),
             ]
         ),
@@ -650,6 +658,41 @@ def handle_message(event):
         send_delivery_time_flex(event.reply_token)
         return
 
+    # ✅ 新增：step 9 等待後5碼
+    if step == 9:
+        if not re.match(r'^\d{5}$', user_message):
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❗ 請輸入 5 位數字，例如：12345")
+            )
+            return
+
+        order_id = state.get("order_id")
+        line_display_name = state.get("line_display_name", "（無法取得）")
+
+        # 更新資料庫
+        supabase.table("orders") \
+            .update({"last_5_digits": user_message}) \
+            .eq("id", order_id) \
+            .execute()
+
+        # 通知老闆
+        state["last_5_digits"] = user_message
+        notify_owner(state, line_display_name, order_id)
+
+        reset_state(user_id)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text=(
+                    f"✅ 收到您的後5碼：{user_message}\n\n"
+                    f"確認收款後我們會盡快安排出貨，謝謝您 🥟"
+                )
+            )
+        )
+        return
+
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text="請使用按鈕操作，或輸入「取消」結束訂購 🥟")
@@ -676,7 +719,6 @@ def handle_postback(event):
         send_qty_a_flex(event.reply_token)
         return
 
-    # ✅ 新增：確認收款
     if action == "confirm_payment":
         order_id = params.get("order_id")
         try:
@@ -722,11 +764,18 @@ def handle_postback(event):
         total_packs = qty_a + qty_b
 
         if total_packs < MIN_PACKS:
+            # ✅ 修正：只能 reply 一次，改用 push + reply
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text=f"❗ 最少需訂購 {MIN_PACKS} 包，目前共 {total_packs} 包，請重新選擇。")
             )
-            send_qty_b_flex(event.reply_token, qty_a)
+            line_bot_api.push_message(
+                user_id,
+                FlexSendMessage(
+                    alt_text="請選擇韭菜黑豬水餃數量",
+                    contents=_build_qty_b_bubble(qty_a)
+                )
+            )
             return
 
         state["qty_b"] = qty_b
@@ -787,6 +836,7 @@ def handle_postback(event):
         send_order_summary_flex(event.reply_token, state)
         return
 
+    # ✅ 修改：confirm_order 不再直接通知老闆，改進入 step 9
     if action == "confirm_order" and step == 8:
         try:
             try:
@@ -795,16 +845,29 @@ def handle_postback(event):
             except Exception:
                 line_display_name = "（無法取得）"
 
-            order_id = save_order(user_id, state)
-            notify_owner(state, line_display_name, order_id)
-            reset_state(user_id)
+            # 先建立訂單（last_5_digits 暫為空）
+            order_id = save_order(user_id, state, last_5_digits="")
+
+            # 進入 step 9，等待後5碼
+            state["step"] = 9
+            state["order_id"] = order_id
+            state["line_display_name"] = line_display_name
+            user_states[user_id] = state
+
+            subtotal, shipping, total = calc_order(
+                state.get("qty_a", 0), state.get("qty_b", 0)
+            )
+
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
                     text=(
-                        "✅ 訂單已送出！感謝您的訂購 🥟\n\n"
-                        "請完成轉帳後，告知匯款帳號後5碼，方便我們確認。\n"
-                        "我們收到後會盡快安排出貨！"
+                        f"✅ 訂單已送出！感謝您的訂購 🥟\n\n"
+                        f"💳 請轉帳 NT${total} 至：\n"
+                        f"中國信託（822）頭份分行\n"
+                        f"帳號：370540364486\n"
+                        f"戶名：徐志帆\n\n"
+                        f"轉帳完成後，請回覆匯款帳號後 5 碼 🔢"
                     )
                 )
             )
@@ -815,6 +878,47 @@ def handle_postback(event):
                 TextSendMessage(text=f"❌ 訂單送出失敗，請稍後再試。\n錯誤：{str(e)}")
             )
         return
+
+
+# ✅ 輔助函式：建立 qty_b 的 BubbleContainer（供 push 使用）
+def _build_qty_b_bubble(qty_a):
+    remaining = MAX_PACKS - qty_a
+    buttons = []
+    for i in range(0, remaining + 1):
+        buttons.append(
+            ButtonComponent(
+                action=PostbackAction(label=str(i), data=f"action=qty_b&value={i}"),
+                style="primary" if i > 0 else "secondary",
+                color="#5B9BD5" if i > 0 else "#AAAAAA",
+                height="sm"
+            )
+        )
+    rows = []
+    row = []
+    for btn in buttons:
+        row.append(btn)
+        if len(row) == 4:
+            rows.append(BoxComponent(layout="horizontal", contents=row, spacing="sm"))
+            row = []
+    if row:
+        rows.append(BoxComponent(layout="horizontal", contents=row, spacing="sm"))
+
+    return BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=[
+                TextComponent(text="韭菜黑豬水餃", weight="bold", size="lg", color="#333333"),
+                TextComponent(
+                    text=f"已選高麗菜 {qty_a} 包，最多還可選 {remaining} 包",
+                    size="sm", color="#888888", margin="sm"
+                ),
+                SeparatorComponent(margin="md"),
+                *rows,
+                make_cancel_button()
+            ],
+            spacing="md"
+        )
+    )
 
 
 if __name__ == "__main__":
