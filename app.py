@@ -4,7 +4,8 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    PostbackEvent, FlexSendMessage
+    PostbackEvent, FlexSendMessage, QuickReply, QuickReplyButton,
+    PostbackAction
 )
 
 app = Flask(__name__)
@@ -40,6 +41,18 @@ def callback():
     except InvalidSignatureError:
         abort(400)
     return 'OK', 200
+
+
+def cancel_quick_reply():
+    """建立帶有「取消填單」Quick Reply 按鈕"""
+    return QuickReply(items=[
+        QuickReplyButton(
+            action=PostbackAction(
+                label='✖ 取消填單',
+                data='cancel'
+            )
+        )
+    ])
 
 
 def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
@@ -83,7 +96,7 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
                 "type": "button",
                 "action": {
                     "type": "postback",
-                    "label": "✖ 取消訂單",
+                    "label": "✖ 取消填單",
                     "data": "cancel"
                 },
                 "style": "secondary",
@@ -175,7 +188,7 @@ def make_pickup_flex():
                     "type": "button",
                     "action": {
                         "type": "postback",
-                        "label": "✖ 取消訂單",
+                        "label": "✖ 取消填單",
                         "data": "cancel"
                     },
                     "style": "secondary",
@@ -289,13 +302,13 @@ def handle_postback(event):
     user_id = event.source.user_id
     data = event.postback.data
 
-    # 取消訂單
+    # 取消填單
     if data == 'cancel':
         user_states[user_id] = None
         user_orders[user_id] = {}
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text='已取消訂單 ❌\n如需重新訂購，請輸入「Go」')
+            TextSendMessage(text='已取消填單 ❌\n如需重新訂購，請輸入「Go」')
         )
         return
 
@@ -334,7 +347,8 @@ def handle_postback(event):
                 text=(
                     f'✅ 高麗菜韭黃黑豬肉{cabbage}包 + 韭菜黑豬肉{qty}包 = 共{total}包\n\n'
                     f'請輸入您的【姓名】'
-                )
+                ),
+                quick_reply=cancel_quick_reply()
             )
         )
 
@@ -345,7 +359,10 @@ def handle_postback(event):
         user_states[user_id] = 'input_remarks'
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=f'✅ 取貨日期：{day}\n\n請輸入【備註】\n（無備註請輸入「No」）')
+            TextSendMessage(
+                text=f'✅ 取貨日期：{day}\n\n請輸入【備註】\n（無備註請輸入「No」）',
+                quick_reply=cancel_quick_reply()
+            )
         )
 
 
@@ -374,7 +391,10 @@ def handle_message(event):
         user_states[user_id] = 'input_phone'
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text='請輸入您的【電話號碼】')
+            TextSendMessage(
+                text='請輸入您的【電話號碼】',
+                quick_reply=cancel_quick_reply()
+            )
         )
 
     # 輸入電話
@@ -383,7 +403,10 @@ def handle_message(event):
         user_states[user_id] = 'input_address'
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text='請輸入您的【收貨地址】')
+            TextSendMessage(
+                text='請輸入您的【收貨地址】',
+                quick_reply=cancel_quick_reply()
+            )
         )
 
     # 輸入地址
