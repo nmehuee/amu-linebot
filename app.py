@@ -29,8 +29,6 @@ line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-user_states = {}
-
 PRICE_PER_PACK = 200
 FREE_SHIPPING_THRESHOLD = 2000
 SHIPPING_FEE = 170
@@ -38,15 +36,50 @@ MIN_PACKS = 2
 MAX_PACKS = 15
 
 
+# ===== State 管理（Supabase） =====
+
+def get_state(user_id):
+    try:
+        result = supabase.table("user_states") \
+            .select("state") \
+            .eq("user_id", user_id) \
+            .execute()
+        if result.data:
+            return result.data[0]["state"]
+        return {}
+    except Exception as e:
+        print(f"[get_state] 錯誤：{e}")
+        return {}
+
+
+def set_state(user_id, state):
+    try:
+        supabase.table("user_states").upsert({
+            "user_id": user_id,
+            "state": state,
+            "updated_at": datetime.datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"[set_state] 錯誤：{e}")
+
+
+def reset_state(user_id):
+    try:
+        supabase.table("user_states") \
+            .delete() \
+            .eq("user_id", user_id) \
+            .execute()
+    except Exception as e:
+        print(f"[reset_state] 錯誤：{e}")
+
+
+# ===== 工具函數 =====
+
 def calc_order(qty_a, qty_b):
     subtotal = (qty_a + qty_b) * PRICE_PER_PACK
     shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
     total = subtotal + shipping
     return subtotal, shipping, total
-
-
-def reset_state(user_id):
-    user_states.pop(user_id, None)
 
 
 def make_cancel_button():
@@ -57,6 +90,8 @@ def make_cancel_button():
         margin="lg"
     )
 
+
+# ===== Flex Message 函數 =====
 
 def send_welcome(reply_token):
     bubble = BubbleContainer(
@@ -352,6 +387,8 @@ def send_order_summary_flex(reply_token, state):
     )
 
 
+# ===== 通知店家 =====
+
 def notify_owner(state, line_display_name="", order_id=None):
     print(f"[notify_owner] ===== 開始執行 =====")
     print(f"[notify_owner] OWNER_ID = {OWNER_ID}")
@@ -452,6 +489,8 @@ def notify_owner(state, line_display_name="", order_id=None):
         traceback.print_exc()
 
 
+# ===== 儲存訂單 =====
+
 def save_order(user_id, state, last_5_digits=""):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
@@ -483,6 +522,8 @@ def save_order(user_id, state, last_5_digits=""):
 
     return result.data[0]["id"]
 
+
+# ===== 匯出 Excel =====
 
 def export_orders_to_excel():
     try:
@@ -599,6 +640,8 @@ def export_orders_to_excel():
         return None, f"❌ 匯出失敗：{str(e)}"
 
 
+# ===== Webhook =====
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers["X-Line-Signature"]
@@ -677,7 +720,7 @@ def handle_message(event):
     if source_type == "group":
         return
 
-    state = user_states.get(user_id, {})
+    state = get_state(user_id)
     step = state.get("step", 0)
 
     print(f"[handle_message] step={step}")
@@ -691,7 +734,7 @@ def handle_message(event):
     if step == 4:
         state["name"] = user_message
         state["step"] = 5
-        user_states[user_id] = state
+        set_state(user_id, state)
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="請輸入您的手機號碼（格式：09xxxxxxxx）")
@@ -708,7 +751,7 @@ def handle_message(event):
             return
         state["phone"] = user_message
         state["step"] = 6
-        user_states[user_id] = state
+        set_state(user_id, state)
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="請輸入收件地址")
@@ -719,7 +762,7 @@ def handle_message(event):
     if step == 6:
         state["address"] = user_message
         state["step"] = 7
-        user_states[user_id] = state
+        set_state(user_id, state)
         send_delivery_time_flex(event.reply_token)
         return
 
@@ -791,7 +834,7 @@ def handle_postback(event):
 
     # 開始訂購
     if action == "start_order":
-        user_states[user_id] = {"step": 1}
+        set_state(user_id, {"step": 1})
         send_qty_a_flex(event.reply_token)
         return
 
@@ -826,7 +869,7 @@ def handle_postback(event):
             )
         return
 
-    state = user_states.get(user_id, {})
+    state = get_state(user_id)
     step = state.get("step", 0)
 
     print(f"[handle_postback] step={step}")
@@ -836,7 +879,7 @@ def handle_postback(event):
         qty_a = int(params.get("value", 0))
         state["qty_a"] = qty_a
         state["step"] = 2
-        user_states[user_id] = state
+        set_state(user_id, state)
         send_qty_b_flex(event.reply_token, qty_a)
         return
 
@@ -864,7 +907,7 @@ def handle_postback(event):
 
         state["qty_b"] = qty_b
         state["step"] = 3
-        user_states[user_id] = state
+        set_state(user_id, state)
 
         profile_result = supabase.table("user_profiles") \
             .select("*") \
@@ -881,7 +924,7 @@ def handle_postback(event):
             )
         else:
             state["step"] = 4
-            user_states[user_id] = state
+            set_state(user_id, state)
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="請輸入您的姓名")
@@ -901,14 +944,14 @@ def handle_postback(event):
             state["phone"] = profile["phone"]
             state["address"] = profile["address"]
             state["step"] = 7
-            user_states[user_id] = state
+            set_state(user_id, state)
             send_delivery_time_flex(event.reply_token)
         return
 
     # Step 3：重新填寫
     if action == "reenter" and step == 3:
         state["step"] = 4
-        user_states[user_id] = state
+        set_state(user_id, state)
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="請輸入您的姓名")
@@ -919,7 +962,7 @@ def handle_postback(event):
     if action == "delivery" and step == 7:
         state["delivery_time"] = params.get("value", "皆可")
         state["step"] = 8
-        user_states[user_id] = state
+        set_state(user_id, state)
         send_order_summary_flex(event.reply_token, state)
         return
 
@@ -941,7 +984,7 @@ def handle_postback(event):
             state["step"] = 9
             state["order_id"] = order_id
             state["line_display_name"] = line_display_name
-            user_states[user_id] = state
+            set_state(user_id, state)
 
             subtotal, shipping, total = calc_order(
                 state.get("qty_a", 0), state.get("qty_b", 0)
@@ -969,6 +1012,8 @@ def handle_postback(event):
             )
         return
 
+
+# ===== 輔助函數 =====
 
 def _build_qty_b_bubble(qty_a):
     remaining = MAX_PACKS - qty_a
