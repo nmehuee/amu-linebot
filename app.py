@@ -192,7 +192,7 @@ def make_pickup_flex():
 
 
 def make_summary_flex(order):
-    """建立訂單確認 Flex Message，費用明細與匯款資訊以藍色顯示"""
+    """建立訂單確認 Flex Message，費用明細與匯款資訊以藍色粗體顯示"""
     cabbage = order.get('cabbage', 0)
     chives = order.get('chives', 0)
     total_packs = cabbage + chives
@@ -206,7 +206,7 @@ def make_summary_flex(order):
     delivery_time = order.get('delivery_time', '')
     remarks = order.get('remarks', 'No')
 
-    def row(label, value, value_color="#333333"):
+    def row(label, value, value_color="#333333", value_bold=False):
         return {
             "type": "box",
             "layout": "horizontal",
@@ -223,6 +223,7 @@ def make_summary_flex(order):
                     "text": str(value),
                     "size": "sm",
                     "color": value_color,
+                    "weight": "bold" if value_bold else "regular",
                     "flex": 5,
                     "wrap": True
                 }
@@ -263,7 +264,7 @@ def make_summary_flex(order):
                 row("🌿 韭菜黑豬肉", f"{chives} 包"),
                 {"type": "separator"},
 
-                # 費用明細（藍色）
+                # 費用明細（藍色粗體）
                 {
                     "type": "text",
                     "text": "💰 費用明細",
@@ -271,9 +272,9 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#333333"
                 },
-                row("小計", f"NT${subtotal}", value_color="#1D6FA4"),
-                row("運費", f"NT${shipping}", value_color="#1D6FA4"),
-                row("總計", f"NT${total}", value_color="#1D6FA4"),
+                row("小計", f"NT${subtotal}", value_color="#1D6FA4", value_bold=True),
+                row("運費", f"NT${shipping}", value_color="#1D6FA4", value_bold=True),
+                row("總計", f"NT${total}", value_color="#1D6FA4", value_bold=True),
                 {"type": "separator"},
 
                 # 收件資訊
@@ -291,7 +292,7 @@ def make_summary_flex(order):
                 row("📝 備註", remarks),
                 {"type": "separator"},
 
-                # 匯款資訊（藍色）
+                # 匯款資訊（藍色粗體）
                 {
                     "type": "text",
                     "text": "💳 匯款資訊",
@@ -299,13 +300,13 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#1D6FA4"
                 },
-                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4"),
-                row("分行", "頭份分行", value_color="#1D6FA4"),
-                row("帳號", "370540364486", value_color="#1D6FA4"),
-                row("戶名", "徐志帆", value_color="#1D6FA4"),
+                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4", value_bold=True),
+                row("分行", "頭份分行", value_color="#1D6FA4", value_bold=True),
+                row("帳號", "370540364486", value_color="#1D6FA4", value_bold=True),
+                row("戶名", "徐志帆", value_color="#1D6FA4", value_bold=True),
                 {"type": "separator"},
 
-                # 注意事項（藍色）
+                # 注意事項（藍色粗體）
                 {
                     "type": "text",
                     "text": "請於24小時內完成匯款，並告知匯款帳號後5碼！🙏",
