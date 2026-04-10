@@ -18,7 +18,6 @@ from supabase import create_client, Client
 
 app = Flask(__name__)
 
-# 環境變數
 CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
 OWNER_ID = os.environ.get("OWNER_ID")
@@ -29,19 +28,14 @@ line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 使用者狀態暫存
 user_states = {}
 
-# 商品單價
 PRICE_PER_PACK = 200
 FREE_SHIPPING_THRESHOLD = 2000
 SHIPPING_FEE = 170
 MIN_PACKS = 2
 MAX_PACKS = 15
 
-# =====================
-# 工具函式
-# =====================
 
 def calc_order(qty_a, qty_b):
     subtotal = (qty_a + qty_b) * PRICE_PER_PACK
@@ -53,10 +47,6 @@ def calc_order(qty_a, qty_b):
 def reset_state(user_id):
     user_states.pop(user_id, None)
 
-
-# =====================
-# Flex Message 元件
-# =====================
 
 def make_cancel_button():
     return ButtonComponent(
@@ -119,7 +109,6 @@ def send_qty_a_flex(reply_token):
                 height="sm"
             )
         )
-
     rows = []
     row = []
     for idx, btn in enumerate(buttons):
@@ -161,7 +150,6 @@ def send_qty_b_flex(reply_token, qty_a):
                 height="sm"
             )
         )
-
     rows = []
     row = []
     for btn in buttons:
@@ -281,7 +269,6 @@ def send_order_summary_flex(reply_token, state):
     if qty_b > 0:
         content_lines.append(f"韭菜黑豬水餃 x{qty_b} 包")
     content_str = "\n".join(content_lines)
-
     shipping_str = "免運 🎉" if shipping == 0 else f"NT${shipping}"
 
     bubble = BubbleContainer(
@@ -325,11 +312,7 @@ def send_order_summary_flex(reply_token, state):
                     margin="sm"
                 ),
                 SeparatorComponent(margin="md"),
-                TextComponent(
-                    text="💳 付款資訊",
-                    weight="bold", size="sm", color="#555555", margin="md"
-                ),
-                # ✅ 修改 1：豐原分行 → 頭份分行
+                TextComponent(text="💳 付款資訊", weight="bold", size="sm", color="#555555", margin="md"),
                 TextComponent(
                     text="中國信託銀行（822）\n頭份分行\n帳號：370540364486\n戶名：徐志帆",
                     size="sm",
@@ -337,7 +320,6 @@ def send_order_summary_flex(reply_token, state):
                     margin="sm",
                     wrap=True
                 ),
-                # ✅ 修改 2：截圖回傳 → 告知匯款帳號後5碼
                 TextComponent(
                     text=f"請轉帳 NT${total}，完成後請告知匯款帳號後5碼",
                     size="sm",
@@ -366,22 +348,19 @@ def send_order_summary_flex(reply_token, state):
     )
 
 
-# =====================
-# 匯出 Excel 函式
-# =====================
-
 def export_orders_to_excel():
     try:
         result = supabase.table("orders") \
             .select("*") \
             .eq("exported", False) \
+            .eq("status", "paid") \
             .order("created_at", desc=False) \
             .execute()
 
         orders = result.data
 
         if not orders:
-            return None, "目前沒有新訂單需要匯出 📭"
+            return None, "目前沒有已收款的訂單可匯出 📭"
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -476,16 +455,12 @@ def export_orders_to_excel():
         return None, f"❌ 匯出失敗：{str(e)}"
 
 
-# =====================
-# 儲存訂單到 Supabase
-# =====================
-
 def save_order(user_id, state):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
     subtotal, shipping, total = calc_order(qty_a, qty_b)
 
-    supabase.table("orders").insert({
+    result = supabase.table("orders").insert({
         "user_id": user_id,
         "name": state.get("name"),
         "phone": state.get("phone"),
@@ -496,7 +471,8 @@ def save_order(user_id, state):
         "subtotal": subtotal,
         "shipping": shipping,
         "total": total,
-        "exported": False
+        "exported": False,
+        "status": "pending"
     }).execute()
 
     supabase.table("user_profiles").upsert({
@@ -507,45 +483,86 @@ def save_order(user_id, state):
         "updated_at": datetime.datetime.utcnow().isoformat()
     }).execute()
 
+    return result.data[0]["id"]
 
-# =====================
-# 通知店主（含 LINE 顯示名稱）
-# =====================
 
-def notify_owner(state, line_display_name=""):
+def notify_owner(state, line_display_name="", order_id=None):
     qty_a = state.get("qty_a", 0)
     qty_b = state.get("qty_b", 0)
     subtotal, shipping, total = calc_order(qty_a, qty_b)
 
     content_lines = []
     if qty_a > 0:
-        content_lines.append(f"  高麗菜黑豬水餃 x{qty_a} 包")
+        content_lines.append(f"高麗菜黑豬水餃 x{qty_a} 包")
     if qty_b > 0:
-        content_lines.append(f"  韭菜黑豬水餃 x{qty_b} 包")
-    content_str = "\n".join(content_lines)
+        content_lines.append(f"韭菜黑豬水餃 x{qty_b} 包")
+    content_str = "、".join(content_lines)
 
-    msg = (
-        f"🔔 新訂單通知！\n"
-        f"{'='*20}\n"
-        f"💬 LINE 名稱：{line_display_name}\n"
-        f"👤 姓名：{state.get('name')}\n"
-        f"📞 電話：{state.get('phone')}\n"
-        f"📍 地址：{state.get('address')}\n"
-        f"🚚 到貨時間：{state.get('delivery_time')}\n"
-        f"{'─'*20}\n"
-        f"🛒 商品：\n{content_str}\n"
-        f"{'─'*20}\n"
-        f"小計：NT${subtotal}\n"
-        f"運費：{'免運' if shipping == 0 else f'NT${shipping}'}\n"
-        f"💰 總計：NT${total}\n"
-        f"{'='*20}"
+    bubble = BubbleContainer(
+        body=BoxComponent(
+            layout="vertical",
+            contents=[
+                TextComponent(text="🔔 新訂單通知", weight="bold", size="xl", color="#333333"),
+                SeparatorComponent(margin="md"),
+                TextComponent(text=f"💬 LINE：{line_display_name}", size="sm", color="#555555", margin="md"),
+                TextComponent(text=f"👤 姓名：{state.get('name')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(text=f"📞 電話：{state.get('phone')}", size="sm", color="#555555", margin="sm"),
+                TextComponent(
+                    text=f"📍 地址：{state.get('address')}",
+                    size="sm", color="#555555", margin="sm", wrap=True
+                ),
+                TextComponent(text=f"🚚 到貨：{state.get('delivery_time')}", size="sm", color="#555555", margin="sm"),
+                SeparatorComponent(margin="md"),
+                TextComponent(text=f"🛒 {content_str}", size="sm", color="#333333", margin="md", wrap=True),
+                BoxComponent(
+                    layout="horizontal",
+                    margin="sm",
+                    contents=[
+                        TextComponent(text="小計", size="sm", color="#888888"),
+                        TextComponent(text=f"NT${subtotal}", size="sm", color="#333333", align="end"),
+                    ]
+                ),
+                BoxComponent(
+                    layout="horizontal",
+                    margin="sm",
+                    contents=[
+                        TextComponent(text="運費", size="sm", color="#888888"),
+                        TextComponent(
+                            text="免運 🎉" if shipping == 0 else f"NT${shipping}",
+                            size="sm", color="#333333", align="end"
+                        ),
+                    ]
+                ),
+                BoxComponent(
+                    layout="horizontal",
+                    margin="sm",
+                    contents=[
+                        TextComponent(text="總計", size="sm", color="#333333", weight="bold"),
+                        TextComponent(text=f"NT${total}", size="sm", color="#FF6B6B", weight="bold", align="end"),
+                    ]
+                ),
+            ]
+        ),
+        footer=BoxComponent(
+            layout="vertical",
+            contents=[
+                ButtonComponent(
+                    action=PostbackAction(
+                        label="✅ 確認收款",
+                        data=f"action=confirm_payment&order_id={order_id}"
+                    ),
+                    style="primary",
+                    color="#28A745"
+                )
+            ]
+        )
     )
-    line_bot_api.push_message(OWNER_ID, TextSendMessage(text=msg))
 
+    line_bot_api.push_message(
+        OWNER_ID,
+        FlexSendMessage(alt_text="🔔 新訂單通知", contents=bubble)
+    )
 
-# =====================
-# Webhook 路由
-# =====================
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -558,16 +575,11 @@ def callback():
     return "OK"
 
 
-# =====================
-# 訊息處理
-# =====================
-
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text.strip()
 
-    # 判斷來源是群組還是個人
     source_type = event.source.type
     if source_type == "group":
         source_id = event.source.group_id
@@ -576,7 +588,6 @@ def handle_message(event):
     else:
         source_id = user_id
 
-    # 取消關鍵字（只在個人對話生效）
     if source_type != "group":
         cancel_keywords = ["取消", "離開", "掰掰"]
         if user_message in cancel_keywords:
@@ -587,20 +598,15 @@ def handle_message(event):
             )
             return
 
-    # 匯出指令：個人 ID 或 群組/Room ID 符合 OWNER_ID 都可觸發
     if user_message == "匯出" and (user_id == OWNER_ID or source_id == OWNER_ID):
         url, msg = export_orders_to_excel()
-        if url:
-            reply_text = f"{msg}\n\n📥 下載連結：\n{url}"
-        else:
-            reply_text = msg
+        reply_text = f"{msg}\n\n📥 下載連結：\n{url}" if url else msg
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=reply_text)
         )
         return
 
-    # 群組訊息不處理訂單流程
     if source_type == "group":
         return
 
@@ -650,10 +656,6 @@ def handle_message(event):
     )
 
 
-# =====================
-# Postback 處理
-# =====================
-
 @handler.add(PostbackEvent)
 def handle_postback(event):
     user_id = event.source.user_id
@@ -672,6 +674,35 @@ def handle_postback(event):
     if action == "start_order":
         user_states[user_id] = {"step": 1}
         send_qty_a_flex(event.reply_token)
+        return
+
+    # ✅ 新增：確認收款
+    if action == "confirm_payment":
+        order_id = params.get("order_id")
+        try:
+            result = supabase.table("orders") \
+                .update({"status": "paid"}) \
+                .eq("id", order_id) \
+                .execute()
+
+            order = result.data[0]
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text=(
+                        f"✅ 已確認收款！\n"
+                        f"訂單 #{order_id}\n"
+                        f"客戶：{order['name']}\n"
+                        f"總計：NT${order['total']}\n\n"
+                        f"此訂單將在下次匯出時納入 📋"
+                    )
+                )
+            )
+        except Exception as e:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"❌ 更新失敗：{str(e)}")
+            )
         return
 
     state = user_states.get(user_id, {})
@@ -758,22 +789,20 @@ def handle_postback(event):
 
     if action == "confirm_order" and step == 8:
         try:
-            # 取得 LINE 顯示名稱
             try:
                 profile = line_bot_api.get_profile(user_id)
                 line_display_name = profile.display_name
             except Exception:
                 line_display_name = "（無法取得）"
 
-            save_order(user_id, state)
-            notify_owner(state, line_display_name)
+            order_id = save_order(user_id, state)
+            notify_owner(state, line_display_name, order_id)
             reset_state(user_id)
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
                     text=(
                         "✅ 訂單已送出！感謝您的訂購 🥟\n\n"
-                        # ✅ 修改 3：截圖傳給我們確認 → 告知匯款帳號後5碼
                         "請完成轉帳後，告知匯款帳號後5碼，方便我們確認。\n"
                         "我們收到後會盡快安排出貨！"
                     )
@@ -787,10 +816,6 @@ def handle_postback(event):
             )
         return
 
-
-# =====================
-# 主程式入口
-# =====================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
