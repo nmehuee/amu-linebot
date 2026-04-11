@@ -210,7 +210,7 @@ def make_summary_flex(order):
                     "type": "text",
                     "text": label,
                     "size": "sm",
-                    "color": "#888888",
+                    "color": "#333333",   # ← 灰色改黑色
                     "flex": 4
                 },
                 {
@@ -220,7 +220,7 @@ def make_summary_flex(order):
                     "color": value_color,
                     "weight": "bold" if value_bold else "regular",
                     "flex": 4,
-                    "wrap": True      # value 欄仍保留換行（地址可能較長）
+                    "wrap": True
                 }
             ]
         }
@@ -247,7 +247,7 @@ def make_summary_flex(order):
             "spacing": "md",
             "contents": [
 
-                # 商品明細（label 移除 emoji）
+                # 商品明細
                 {
                     "type": "text",
                     "text": "🛒 商品明細",
@@ -255,8 +255,8 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#333333"
                 },
-                row("高麗菜韭黃黑豬肉", f"{cabbage} 包"),   # ← 移除 emoji
-                row("韭菜黑豬肉", f"{chives} 包"),           # ← 移除 emoji
+                row("高麗菜韭黃黑豬肉", f"{cabbage} 包"),
+                row("韭菜黑豬肉", f"{chives} 包"),
                 {"type": "separator"},
 
                 # 費用明細
@@ -272,7 +272,7 @@ def make_summary_flex(order):
                 row("總計", f"NT${total}", value_color="#1D6FA4", value_bold=True),
                 {"type": "separator"},
 
-                # 收件資訊（label 移除 emoji）
+                # 收件資訊
                 {
                     "type": "text",
                     "text": "📦 收件資訊",
@@ -280,14 +280,14 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#333333"
                 },
-                row("姓名", name),          # ← 移除 emoji
-                row("電話", phone),          # ← 移除 emoji
-                row("地址", address),        # ← 移除 emoji
-                row("取貨日期", delivery_time),  # ← 移除 emoji
-                row("備註", remarks),        # ← 移除 emoji
+                row("姓名", name),
+                row("電話", phone),
+                row("地址", address),
+                row("取貨日期", delivery_time),
+                row("備註", remarks),
                 {"type": "separator"},
 
-                # 匯款資訊（label 移除 emoji）
+                # 匯款資訊
                 {
                     "type": "text",
                     "text": "💳 匯款資訊",
@@ -295,10 +295,10 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#1D6FA4"
                 },
-                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4", value_bold=True),  # ← 移除 emoji
-                row("分行", "頭份分行", value_color="#1D6FA4", value_bold=True),           # ← 移除 emoji
-                row("帳號", "370540364486", value_color="#1D6FA4", value_bold=True),       # ← 移除 emoji
-                row("戶名", "徐志帆", value_color="#1D6FA4", value_bold=True),             # ← 移除 emoji
+                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4", value_bold=True),
+                row("分行", "頭份分行", value_color="#1D6FA4", value_bold=True),
+                row("帳號", "370540364486", value_color="#1D6FA4", value_bold=True),
+                row("戶名", "徐志帆", value_color="#1D6FA4", value_bold=True),
                 {"type": "separator"},
 
                 # 注意事項
