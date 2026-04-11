@@ -44,7 +44,6 @@ def callback():
 
 
 def cancel_quick_reply():
-    """建立帶有「取消填單」Quick Reply 按鈕"""
     return QuickReply(items=[
         QuickReplyButton(
             action=PostbackAction(
@@ -56,8 +55,6 @@ def cancel_quick_reply():
 
 
 def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
-    """建立數量選擇的 Flex Message，格狀排列"""
-
     buttons = []
     for i in range(0, max_qty + 1):
         buttons.append({
@@ -135,7 +132,6 @@ def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
 
 
 def make_pickup_flex():
-    """建立取貨日期選擇的 Flex Message"""
     options = ['平日', '禮拜六', '皆可']
 
     buttons = []
@@ -192,7 +188,6 @@ def make_pickup_flex():
 
 
 def make_summary_flex(order):
-    """建立訂單確認 Flex Message，費用明細與匯款資訊以藍色粗體顯示"""
     cabbage = order.get('cabbage', 0)
     chives = order.get('chives', 0)
     total_packs = cabbage + chives
@@ -216,8 +211,7 @@ def make_summary_flex(order):
                     "text": label,
                     "size": "sm",
                     "color": "#888888",
-                    "flex": 4,      # ← 原本是 3，改成 4
-                    "wrap": True    # ← 新增，允許換行
+                    "flex": 4
                 },
                 {
                     "type": "text",
@@ -225,8 +219,8 @@ def make_summary_flex(order):
                     "size": "sm",
                     "color": value_color,
                     "weight": "bold" if value_bold else "regular",
-                    "flex": 4,      # ← 原本是 5，改成 4
-                    "wrap": True
+                    "flex": 4,
+                    "wrap": True      # value 欄仍保留換行（地址可能較長）
                 }
             ]
         }
@@ -253,7 +247,7 @@ def make_summary_flex(order):
             "spacing": "md",
             "contents": [
 
-                # 商品明細
+                # 商品明細（label 移除 emoji）
                 {
                     "type": "text",
                     "text": "🛒 商品明細",
@@ -261,11 +255,11 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#333333"
                 },
-                row("🥬 高麗菜韭黃黑豬肉", f"{cabbage} 包"),
-                row("🌿 韭菜黑豬肉", f"{chives} 包"),
+                row("高麗菜韭黃黑豬肉", f"{cabbage} 包"),   # ← 移除 emoji
+                row("韭菜黑豬肉", f"{chives} 包"),           # ← 移除 emoji
                 {"type": "separator"},
 
-                # 費用明細（藍色粗體）
+                # 費用明細
                 {
                     "type": "text",
                     "text": "💰 費用明細",
@@ -278,7 +272,7 @@ def make_summary_flex(order):
                 row("總計", f"NT${total}", value_color="#1D6FA4", value_bold=True),
                 {"type": "separator"},
 
-                # 收件資訊
+                # 收件資訊（label 移除 emoji）
                 {
                     "type": "text",
                     "text": "📦 收件資訊",
@@ -286,14 +280,14 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#333333"
                 },
-                row("👤 姓名", name),
-                row("📞 電話", phone),
-                row("📍 地址", address),
-                row("🕐 取貨日期", delivery_time),
-                row("📝 備註", remarks),
+                row("姓名", name),          # ← 移除 emoji
+                row("電話", phone),          # ← 移除 emoji
+                row("地址", address),        # ← 移除 emoji
+                row("取貨日期", delivery_time),  # ← 移除 emoji
+                row("備註", remarks),        # ← 移除 emoji
                 {"type": "separator"},
 
-                # 匯款資訊（藍色粗體）
+                # 匯款資訊（label 移除 emoji）
                 {
                     "type": "text",
                     "text": "💳 匯款資訊",
@@ -301,13 +295,13 @@ def make_summary_flex(order):
                     "size": "md",
                     "color": "#1D6FA4"
                 },
-                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4", value_bold=True),
-                row("分行", "頭份分行", value_color="#1D6FA4", value_bold=True),
-                row("帳號", "370540364486", value_color="#1D6FA4", value_bold=True),
-                row("戶名", "徐志帆", value_color="#1D6FA4", value_bold=True),
+                row("銀行", "中國信託銀行(822)", value_color="#1D6FA4", value_bold=True),  # ← 移除 emoji
+                row("分行", "頭份分行", value_color="#1D6FA4", value_bold=True),           # ← 移除 emoji
+                row("帳號", "370540364486", value_color="#1D6FA4", value_bold=True),       # ← 移除 emoji
+                row("戶名", "徐志帆", value_color="#1D6FA4", value_bold=True),             # ← 移除 emoji
                 {"type": "separator"},
 
-                # 注意事項（藍色粗體）
+                # 注意事項
                 {
                     "type": "text",
                     "text": "請於24小時內完成匯款，並告知匯款帳號後5碼！🙏",
@@ -364,10 +358,8 @@ def ask_chives(user_id, reply_token, cabbage_qty):
 def send_order_summary(user_id, reply_token):
     order = user_orders[user_id]
 
-    # 發送 Flex Message 訂單確認給用戶
     line_bot_api.reply_message(reply_token, make_summary_flex(order))
 
-    # 推送純文字通知給店主
     if OWNER_ID:
         cabbage = order.get('cabbage', 0)
         chives = order.get('chives', 0)
@@ -397,7 +389,6 @@ def handle_postback(event):
     user_id = event.source.user_id
     data = event.postback.data
 
-    # 取消填單
     if data == 'cancel':
         user_states[user_id] = None
         user_orders[user_id] = {}
@@ -407,13 +398,11 @@ def handle_postback(event):
         )
         return
 
-    # 選擇高麗菜韭黃黑豬肉數量
     if data.startswith('cabbage='):
         qty = int(data.split('=')[1])
         user_orders[user_id]['cabbage'] = qty
         ask_chives(user_id, event.reply_token, qty)
 
-    # 選擇韭菜黑豬肉數量
     elif data.startswith('chives='):
         qty = int(data.split('=')[1])
         cabbage = user_orders[user_id].get('cabbage', 0)
@@ -444,7 +433,6 @@ def handle_postback(event):
             )
         )
 
-    # 選擇取貨日期
     elif data.startswith('pickup_day='):
         day = data.split('=')[1]
         user_orders[user_id]['delivery_time'] = day
@@ -464,7 +452,6 @@ def handle_message(event):
     text = event.message.text.strip()
     state = user_states.get(user_id)
 
-    # 查詢自己 ID
     if text == '我的ID':
         line_bot_api.reply_message(
             event.reply_token,
@@ -472,12 +459,10 @@ def handle_message(event):
         )
         return
 
-    # 開始訂購
     if text.lower() == 'go':
         start_order(user_id, event.reply_token)
         return
 
-    # 輸入姓名
     if state == 'input_name':
         user_orders[user_id]['name'] = text
         user_states[user_id] = 'input_phone'
@@ -489,7 +474,6 @@ def handle_message(event):
             )
         )
 
-    # 輸入電話
     elif state == 'input_phone':
         user_orders[user_id]['phone'] = text
         user_states[user_id] = 'input_address'
@@ -501,7 +485,6 @@ def handle_message(event):
             )
         )
 
-    # 輸入地址
     elif state == 'input_address':
         user_orders[user_id]['address'] = text
         user_states[user_id] = 'selecting_pickup_day'
@@ -510,7 +493,6 @@ def handle_message(event):
             make_pickup_flex()
         )
 
-    # 輸入備註
     elif state == 'input_remarks':
         user_orders[user_id]['remarks'] = text
         user_states[user_id] = None
