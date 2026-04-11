@@ -216,7 +216,8 @@ def make_summary_flex(order):
                     "text": label,
                     "size": "sm",
                     "color": "#888888",
-                    "flex": 3
+                    "flex": 4,      # ← 原本是 3，改成 4
+                    "wrap": True    # ← 新增，允許換行
                 },
                 {
                     "type": "text",
@@ -224,7 +225,7 @@ def make_summary_flex(order):
                     "size": "sm",
                     "color": value_color,
                     "weight": "bold" if value_bold else "regular",
-                    "flex": 5,
+                    "flex": 4,      # ← 原本是 5，改成 4
                     "wrap": True
                 }
             ]
@@ -438,7 +439,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text='請輸入您的【姓名】',  # ← 移除確認訊息
+                text='請輸入您的【姓名】',
                 quick_reply=cancel_quick_reply()
             )
         )
@@ -451,7 +452,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text='請輸入【備註】\n（無備註請輸入「No」）',  # ← 移除確認訊息
+                text='請輸入【備註】\n（無備註請輸入「No」）',
                 quick_reply=cancel_quick_reply()
             )
         )
