@@ -24,7 +24,7 @@ PRICE_PER_PACK = 200
 SHIPPING_FEE = 170
 FREE_SHIPPING_THRESHOLD = 2000
 MIN_ORDER = 2
-MAX_ORDER = 15
+MAX_ORDER = 12  # ← 改這裡
 
 
 @app.route('/')
@@ -54,7 +54,7 @@ def cancel_quick_reply():
     ])
 
 
-def make_quantity_flex(title, subtitle, postback_prefix, max_qty=15):
+def make_quantity_flex(title, subtitle, postback_prefix, max_qty=12):  # ← 改這裡
     buttons = []
     for i in range(0, max_qty + 1):
         buttons.append({
@@ -210,7 +210,7 @@ def make_summary_flex(order):
                     "type": "text",
                     "text": label,
                     "size": "sm",
-                    "color": "#333333",   # ← 灰色改黑色
+                    "color": "#333333",
                     "flex": 4
                 },
                 {
@@ -328,7 +328,7 @@ def start_order(user_id, reply_token):
             '• 高麗菜韭黃黑豬肉水餃 NT$200/包\n'
             '• 韭菜黑豬肉水餃 NT$200/包\n\n'
             '🚚 運費：NT$170（滿NT$2000免運）\n'
-            '⚠️ 最少2包，最多15包'
+            '⚠️ 最少2包，最多12包'  # ← 改這裡
         )
     )
 
