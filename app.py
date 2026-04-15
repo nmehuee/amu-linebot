@@ -21,10 +21,8 @@ user_states = {}
 user_orders = {}
 
 PRICE_PER_PACK = 200
-SHIPPING_FEE = 170
-FREE_SHIPPING_THRESHOLD = 2000
 MIN_ORDER = 2
-MAX_ORDER = 12  # ← 改這裡
+MAX_ORDER = 12
 
 
 @app.route('/')
@@ -54,7 +52,162 @@ def cancel_quick_reply():
     ])
 
 
-def make_quantity_flex(title, subtitle, postback_prefix, max_qty=12):  # ← 改這裡
+def make_welcome_flex():
+    flex_content = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "歡迎來到 A-MU水餃！🥟",
+                    "weight": "bold",
+                    "size": "lg",
+                    "wrap": True
+                },
+                {"type": "separator"},
+
+                # 商品
+                {
+                    "type": "text",
+                    "text": "📦 商品：",
+                    "weight": "bold",
+                    "size": "sm"
+                },
+                {
+                    "type": "text",
+                    "text": "• 高麗菜韭黃黑豬肉水餃 NT$200/包\n• 韭菜黑豬肉水餃 NT$200/包",
+                    "size": "sm",
+                    "color": "#333333",
+                    "wrap": True
+                },
+                {"type": "separator"},
+
+                # 運費說明
+                {
+                    "type": "text",
+                    "text": "🚚 運費說明：",
+                    "weight": "bold",
+                    "size": "sm"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "2 ~ 5 包",
+                                    "size": "sm",
+                                    "color": "#333333",
+                                    "flex": 3
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "運費 NT$225",
+                                    "size": "sm",
+                                    "color": "#E05C5C",
+                                    "flex": 5,
+                                    "weight": "bold"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "6 ~ 9 包",
+                                    "size": "sm",
+                                    "color": "#333333",
+                                    "flex": 3
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "運費 NT$150，現省75 🎉",
+                                    "size": "sm",
+                                    "color": "#E05C5C",
+                                    "flex": 5,
+                                    "weight": "bold"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "10 ~ 12 包",
+                                    "size": "sm",
+                                    "color": "#333333",
+                                    "flex": 3
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "免運，最划算 🏆",
+                                    "size": "sm",
+                                    "color": "#27AE60",
+                                    "flex": 5,
+                                    "weight": "bold"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {"type": "separator"},
+
+                # 訂購限制
+                {
+                    "type": "text",
+                    "text": "⚠️ 最少2包，最多12包",
+                    "size": "sm",
+                    "color": "#888888",
+                    "wrap": True
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "postback",
+                        "label": "✅ 了解",
+                        "data": "welcome_confirm"
+                    },
+                    "style": "primary",
+                    "color": "#E05C5C",
+                    "height": "sm"
+                },
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "postback",
+                        "label": "✖ 取消填單",
+                        "data": "cancel"
+                    },
+                    "style": "secondary",
+                    "height": "sm"
+                }
+            ]
+        }
+    }
+
+    return FlexSendMessage(alt_text='歡迎來到 A-MU水餃！', contents=flex_content)
+
+
+def make_quantity_flex(title, subtitle, postback_prefix, max_qty=12):
     buttons = []
     for i in range(0, max_qty + 1):
         buttons.append({
@@ -192,7 +345,15 @@ def make_summary_flex(order):
     chives = order.get('chives', 0)
     total_packs = cabbage + chives
     subtotal = total_packs * PRICE_PER_PACK
-    shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
+
+    # 新運費邏輯
+    if total_packs >= 10:
+        shipping = 0
+    elif total_packs >= 6:
+        shipping = 150
+    else:
+        shipping = 225
+
     total = subtotal + shipping
 
     name = order.get('name', '')
@@ -318,27 +479,19 @@ def make_summary_flex(order):
 
 
 def start_order(user_id, reply_token):
-    user_states[user_id] = 'selecting_cabbage'
+    user_states[user_id] = 'waiting_welcome_confirm'
     user_orders[user_id] = {}
+    line_bot_api.reply_message(reply_token, make_welcome_flex())
 
-    welcome = TextSendMessage(
-        text=(
-            '歡迎來到 A-MU水餃！🥟\n\n'
-            '📦 商品：\n'
-            '• 高麗菜韭黃黑豬肉水餃 NT$200/包\n'
-            '• 韭菜黑豬肉水餃 NT$200/包\n\n'
-            '🚚 運費：NT$170（滿NT$2000免運）\n'
-            '⚠️ 最少2包，最多12包'  # ← 改這裡
-        )
-    )
 
+def ask_cabbage(user_id, reply_token):
+    user_states[user_id] = 'selecting_cabbage'
     flex = make_quantity_flex(
         title='高麗菜韭黃黑豬肉水餃',
         subtitle='請選擇數量（包）',
         postback_prefix='cabbage'
     )
-
-    line_bot_api.reply_message(reply_token, [welcome, flex])
+    line_bot_api.reply_message(reply_token, flex)
 
 
 def ask_chives(user_id, reply_token, cabbage_qty):
@@ -351,13 +504,11 @@ def ask_chives(user_id, reply_token, cabbage_qty):
         postback_prefix='chives',
         max_qty=remaining
     )
-
     line_bot_api.reply_message(reply_token, flex)
 
 
 def send_order_summary(user_id, reply_token):
     order = user_orders[user_id]
-
     line_bot_api.reply_message(reply_token, make_summary_flex(order))
 
     if OWNER_ID:
@@ -365,145 +516,16 @@ def send_order_summary(user_id, reply_token):
         chives = order.get('chives', 0)
         total_packs = cabbage + chives
         subtotal = total_packs * PRICE_PER_PACK
-        shipping = 0 if subtotal >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
+
+        if total_packs >= 10:
+            shipping = 0
+        elif total_packs >= 6:
+            shipping = 150
+        else:
+            shipping = 225
+
         total = subtotal + shipping
 
         owner_msg = (
             f'🔔 新訂單通知！\n'
-            f'────────────────────\n'
-            f'🥬 高麗菜韭黃黑豬肉：{cabbage} 包\n'
-            f'🌿 韭菜黑豬肉：{chives} 包\n'
-            f'💰 總計：NT${total}（運費NT${shipping}）\n'
-            f'────────────────────\n'
-            f'👤 {order.get("name", "")}\n'
-            f'📞 {order.get("phone", "")}\n'
-            f'📍 {order.get("address", "")}\n'
-            f'🕐 {order.get("delivery_time", "")}\n'
-            f'📝 {order.get("remarks", "No")}'
-        )
-        line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
-
-
-@handler.add(PostbackEvent)
-def handle_postback(event):
-    user_id = event.source.user_id
-    data = event.postback.data
-
-    if data == 'cancel':
-        user_states[user_id] = None
-        user_orders[user_id] = {}
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text='已取消填單 ❌\n如需重新訂購，請輸入「Go」')
-        )
-        return
-
-    if data.startswith('cabbage='):
-        qty = int(data.split('=')[1])
-        user_orders[user_id]['cabbage'] = qty
-        ask_chives(user_id, event.reply_token, qty)
-
-    elif data.startswith('chives='):
-        qty = int(data.split('=')[1])
-        cabbage = user_orders[user_id].get('cabbage', 0)
-        total = cabbage + qty
-
-        if total < MIN_ORDER:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text=(
-                        f'⚠️ 總數量不足！\n'
-                        f'高麗菜韭黃黑豬肉{cabbage}包 + 韭菜黑豬肉{qty}包 = {total}包\n'
-                        f'最少需要 {MIN_ORDER} 包\n\n'
-                        f'請重新輸入「Go」再試一次'
-                    )
-                )
-            )
-            user_states[user_id] = None
-            return
-
-        user_orders[user_id]['chives'] = qty
-        user_states[user_id] = 'input_name'
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text='請輸入您的【姓名】',
-                quick_reply=cancel_quick_reply()
-            )
-        )
-
-    elif data.startswith('pickup_day='):
-        day = data.split('=')[1]
-        user_orders[user_id]['delivery_time'] = day
-        user_states[user_id] = 'input_remarks'
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text='請輸入【備註】\n（無備註請輸入「No」）',
-                quick_reply=cancel_quick_reply()
-            )
-        )
-
-
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
-    user_id = event.source.user_id
-    text = event.message.text.strip()
-    state = user_states.get(user_id)
-
-    if text == '我的ID':
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f'您的 LINE ID 是：\n{user_id}')
-        )
-        return
-
-    if text.lower() == 'go':
-        start_order(user_id, event.reply_token)
-        return
-
-    if state == 'input_name':
-        user_orders[user_id]['name'] = text
-        user_states[user_id] = 'input_phone'
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text='請輸入您的【電話號碼】',
-                quick_reply=cancel_quick_reply()
-            )
-        )
-
-    elif state == 'input_phone':
-        user_orders[user_id]['phone'] = text
-        user_states[user_id] = 'input_address'
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                text='請輸入您的【收貨地址】',
-                quick_reply=cancel_quick_reply()
-            )
-        )
-
-    elif state == 'input_address':
-        user_orders[user_id]['address'] = text
-        user_states[user_id] = 'selecting_pickup_day'
-        line_bot_api.reply_message(
-            event.reply_token,
-            make_pickup_flex()
-        )
-
-    elif state == 'input_remarks':
-        user_orders[user_id]['remarks'] = text
-        user_states[user_id] = None
-        send_order_summary(user_id, event.reply_token)
-
-    else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text='請輸入「Go」開始訂購水餃 🥟')
-        )
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
+            f'────
