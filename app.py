@@ -11,9 +11,18 @@ from linebot.models import (
 
 app = Flask(__name__)
 
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+# ── 環境變數（對應 Render 設定的 KEY 名稱）──
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.environ.get("CHANNEL_SECRET")
 OWNER_ID = os.environ.get("OWNER_ID")
+
+# ── 啟動前檢查 ──
+if not LINE_CHANNEL_ACCESS_TOKEN:
+    raise RuntimeError("❌ 缺少環境變數：CHANNEL_ACCESS_TOKEN")
+if not LINE_CHANNEL_SECRET:
+    raise RuntimeError("❌ 缺少環境變數：CHANNEL_SECRET")
+if not OWNER_ID:
+    print("⚠️  警告：OWNER_ID 未設定，將無法通知店主")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -37,7 +46,7 @@ def calc_shipping(total_packs):
     elif total_packs >= 4:
         return 175
     else:
-        return 0  # 理論上不會到這
+        return 0
 
 # ── 使用者狀態管理（記憶體版）────────────────────────
 user_states = {}
@@ -317,7 +326,6 @@ def make_welcome_flex():
 def make_quantity_flex(product_key):
     product = PRODUCTS[product_key]
     buttons = []
-    # 快速選擇 4~12
     for i in range(MIN_ORDER, MAX_ORDER + 1):
         buttons.append({
             "type": "button",
@@ -384,7 +392,6 @@ def make_confirm_flex(order):
     shipping    = calc_shipping(total_packs)
     total       = subtotal + shipping
 
-    # 運費說明文字
     if shipping == 0:
         shipping_text = "免運費 🎉"
         shipping_color = "#27AE60"
@@ -615,7 +622,6 @@ def handle_postback(event):
             chives_qty  = state["order"].get("chives",  0)
             total_packs = cabbage_qty + chives_qty
 
-            # 數量驗證
             if total_packs == 0:
                 line_bot_api.reply_message(
                     event.reply_token,
