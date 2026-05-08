@@ -12,7 +12,9 @@ app = Flask(__name__)
 
 CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
 CHANNEL_SECRET = os.environ.get('CHANNEL_SECRET')
-OWNER_ID = os.environ.get('OWNER_ID')
+
+if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET:
+    raise ValueError("請設定 CHANNEL_ACCESS_TOKEN 和 CHANNEL_SECRET 環境變數")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -21,7 +23,7 @@ user_states = {}
 user_orders = {}
 
 PRICE_PER_PACK = 200
-MIN_ORDER = 2
+MIN_ORDER = 4
 MAX_ORDER = 12
 
 
@@ -42,12 +44,14 @@ def callback():
 
 
 def calc_shipping(total_packs):
-    if total_packs >= 10:
+    if total_packs >= 12:
         return 0
-    elif total_packs >= 6:
+    elif total_packs >= 10:
+        return 100
+    elif total_packs >= 7:
         return 150
     else:
-        return 225
+        return 175
 
 
 def cancel_quick_reply():
@@ -121,14 +125,14 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "2 ~ 5 包",
+                                    "text": "4 ~ 6 包",
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
                                 },
                                 {
                                     "type": "text",
-                                    "text": "運費 NT$225",
+                                    "text": "運費 NT$175",
                                     "size": "sm",
                                     "color": "#E05C5C",
                                     "flex": 5,
@@ -142,7 +146,7 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "6 ~ 9 包",
+                                    "text": "7 ~ 9 包",
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
@@ -163,7 +167,28 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "10 ~ 12 包",
+                                    "text": "10 ~ 11 包",
+                                    "size": "sm",
+                                    "color": "#333333",
+                                    "flex": 3
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "運費 NT$100",
+                                    "size": "sm",
+                                    "color": "#E05C5C",
+                                    "flex": 5,
+                                    "weight": "bold"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "12 包",
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
@@ -183,7 +208,7 @@ def make_welcome_flex():
                 {"type": "separator"},
                 {
                     "type": "text",
-                    "text": "最少2包，最多12包",
+                    "text": "最少4包，最多12包",
                     "size": "sm",
                     "color": "#888888",
                     "wrap": True
@@ -454,7 +479,7 @@ def ask_cabbage(user_id, reply_token):
     user_states[user_id] = 'selecting_cabbage'
     flex = make_quantity_flex(
         title='高麗菜韭黃黑豬肉水餃',
-        subtitle='請選擇數量（包）',
+        subtitle='請選擇數量（包）\n0 = 不購買此項目',
         postback_prefix='cabbage'
     )
     line_bot_api.reply_message(reply_token, flex)
@@ -464,8 +489,9 @@ def ask_chives(user_id, reply_token, cabbage_qty):
     user_states[user_id] = 'selecting_chives'
     remaining = MAX_ORDER - cabbage_qty
     subtitle = ('請選擇數量（包）\n'
+                '0 = 不購買此項目\n'
                 '目前高麗菜韭黃：' + str(cabbage_qty) +
-                '包，最多還可選 ' + str(remaining) + ' 包')
+                ' 包，最多還可選 ' + str(remaining) + ' 包')
     flex = make_quantity_flex(
         title='韭菜黑豬肉水餃',
         subtitle=subtitle,
@@ -478,31 +504,6 @@ def ask_chives(user_id, reply_token, cabbage_qty):
 def send_order_summary(user_id, reply_token):
     order = user_orders[user_id]
     line_bot_api.reply_message(reply_token, make_summary_flex(order))
-
-    if OWNER_ID:
-        cabbage = order.get('cabbage', 0)
-        chives = order.get('chives', 0)
-        total_packs = cabbage + chives
-        subtotal = total_packs * PRICE_PER_PACK
-        shipping = calc_shipping(total_packs)
-        total = subtotal + shipping
-        sep = '--------------------'
-
-        lines = [
-            '新訂單通知',
-            sep,
-            '高麗菜韭黃黑豬肉：' + str(cabbage) + ' 包',
-            '韭菜黑豬肉：' + str(chives) + ' 包',
-            '總計：NT$' + str(total) + '（運費 NT$' + str(shipping) + '）',
-            sep,
-            '姓名：' + order.get('name', ''),
-            '電話：' + order.get('phone', ''),
-            '地址：' + order.get('address', ''),
-            '取貨日期：' + order.get('delivery_time', ''),
-            '備註：' + order.get('remarks', 'No')
-        ]
-        owner_msg = '\n'.join(lines)
-        line_bot_api.push_message(OWNER_ID, TextSendMessage(text=owner_msg))
 
 
 @handler.add(PostbackEvent)
