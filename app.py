@@ -24,7 +24,7 @@ user_orders = {}
 
 PRICE_PER_PACK = 200
 MIN_ORDER = 4
-MAX_ORDER = 12
+MAX_ORDER = 16  # ✅ 修改：12 → 16
 
 
 @app.route('/')
@@ -44,13 +44,13 @@ def callback():
 
 
 def calc_shipping(total_packs):
-    if total_packs >= 12:
+    if total_packs >= 15:      # ✅ 修改：免運門檻 12 → 15
         return 0
-    elif total_packs >= 10:
-        return 125  # ✅ 修改：100 → 125
-    elif total_packs >= 7:
+    elif total_packs >= 13:    # ✅ 修改：125 區間 10~11 → 13~14
+        return 125
+    elif total_packs >= 9:     # ✅ 修改：150 區間 7~9 → 9~12
         return 150
-    else:
+    else:                      # ✅ 修改：175 區間 4~6 → 4~8
         return 175
 
 
@@ -125,7 +125,7 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "4 ~ 6 包",
+                                    "text": "4 ~ 8 包",      # ✅ 修改
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
@@ -146,7 +146,7 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "7 ~ 9 包",
+                                    "text": "9 ~ 12 包",     # ✅ 修改
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
@@ -167,14 +167,14 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "10 ~ 11 包",
+                                    "text": "13 ~ 14 包",    # ✅ 修改
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
                                 },
                                 {
                                     "type": "text",
-                                    "text": "運費 NT$125",  # ✅ 修改：100 → 125
+                                    "text": "運費 NT$125",   # ✅ 修改
                                     "size": "sm",
                                     "color": "#E05C5C",
                                     "flex": 5,
@@ -188,7 +188,7 @@ def make_welcome_flex():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "12 包",
+                                    "text": "15 ~ 16 包",    # ✅ 修改
                                     "size": "sm",
                                     "color": "#333333",
                                     "flex": 3
@@ -208,7 +208,7 @@ def make_welcome_flex():
                 {"type": "separator"},
                 {
                     "type": "text",
-                    "text": "最少4包，最多12包",
+                    "text": "最少4包，最多16包",              # ✅ 修改
                     "size": "sm",
                     "color": "#888888",
                     "wrap": True
@@ -238,7 +238,7 @@ def make_welcome_flex():
     return FlexSendMessage(alt_text='歡迎來到 A-MU水餃', contents=bubble)
 
 
-def make_quantity_flex(title, subtitle, postback_prefix, max_qty=12):
+def make_quantity_flex(title, subtitle, postback_prefix, max_qty=16):  # ✅ 修改：12 → 16
     buttons = []
     for i in range(0, max_qty + 1):
         buttons.append({
